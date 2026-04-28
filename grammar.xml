@@ -1,0 +1,17 @@
+<grammar>
+
+    <terminals>
+        <symbol>"x"</symbol>
+        <symbol>"y"</symbol>
+        <symbol>"n"</symbol>
+    </terminals>
+
+    <non-terminals>
+        <operators>"+"</operators>
+        <operators>"-"</operators>
+        <operators>"*"</operators>
+        <operators>"/"</operators>
+        <operators>"seno"</operators>
+    </non-terminals>
+
+</grammar>
