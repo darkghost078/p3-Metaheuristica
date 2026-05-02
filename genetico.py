@@ -79,7 +79,7 @@ def mutar_arbol(arbol, profundidad_max=2):
 # ==========================================
 # EVALUACIÓN (FITNESS) PARA MULTIPROCESAMIENTO
 # ==========================================
-def worker_evaluar(args):
+def score(args):
     """
     Función que evalúa a un individuo (árbol) sobre el dataset proporcionado.
     Calcula el 'Balanced Accuracy' incorporando un MARGEN.
@@ -136,120 +136,115 @@ class BlackBoxModel:
         
     def predict(self, X):
         return self.model.predict(X)
+    
+
+def inicializar_poblacion(tam_poblacion,profundidad_inicial):
+    """Inicializa la población de árboles con individuos aleatorios y calcula su fitness."""
+    poblacion = []
+    for _ in range(tam_poblacion):
+        arbol = generar_arbol_aleatorio(profundidad_inicial)
+        poblacion.append((arbol, 0.0))  # El fitness inicial es 0.0
+    return poblacion
+
+def evaluar_poblacion(dataset, poblacion):
+    """Evalúa toda la población usando multiprocesamiento."""
+    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        args = [(individuo, dataset) for individuo, _ in poblacion]
+        resultados_fitness = pool.map(score, args)
+        
+    # Actualizamos la población con el fitness calculado (vector por pares: individuo, fitness)
+    poblacion_evaluada = [(poblacion[i][0], resultados_fitness[i]) for i in range(len(poblacion))]
+    
+    # Ordenamos de mayor a menor fitness
+    poblacion_evaluada.sort(key=lambda x: x[1], reverse=True)
+    return poblacion_evaluada
+
+def seleccion_torneo(poblacion, k=3):
+    """Selección por torneo para elegir padres."""
+    seleccionados = random.sample(poblacion, k)
+    seleccionados.sort(key=lambda x: x[1], reverse=True)
+    return seleccionados[0][0] # Retorna el mejor individuo (árbol)
+    
 
 # ==========================================
 # ALGORITMO GENÉTICO
 # ==========================================
-class AlgoritmoGenetico:
-    def __init__(self, path_modelo, tam_poblacion=20, tam_elite=5, generaciones=50, prob_cruce=0.8, prob_mutacion=0.2, profundidad_inicial=4):
-        self.path_modelo = path_modelo
-        self.tam_poblacion = tam_poblacion
-        self.tam_elite = tam_elite
-        self.generaciones = generaciones
-        self.prob_cruce = prob_cruce
-        self.prob_mutacion = prob_mutacion
-        self.profundidad_inicial = profundidad_inicial
+def genetico(path_modelo, tam_poblacion=20, tam_elite=5, generaciones=50, prob_cruce=0.8, prob_mutacion=0.2, profundidad_inicial=4):
+
+    # Generar dataset de entrenamiento con puntos aleatorios usando el modelo caja negra
+    print(f"Generando dataset exploratorio para {path_modelo}...")
+    bb = BlackBoxModel(path_modelo)
+    
+    # Generar puntos de manera más distribuida para encontrar ambas clases
+    X_points = []
+    Y_labels = []
+    
+    # Muestreo en grid para capturar mejor las fronteras
+    # rarete del -10 al 10 solo
+    rango = np.linspace(-10, 10, 30)
+    for i in rango:
+        for j in rango:
+            X_points.append([i, j])
+            
+    X_points = np.array(X_points)
+    Y_labels = bb.predict(X_points)
+    
+    dataset = [(x[0], x[1], y) for x, y in zip(X_points, Y_labels)]
+    clases, counts = np.unique(Y_labels, return_counts=True)
+    print(f"Dataset generado. Distribución de clases: {dict(zip(clases, counts))}")
+
+
+    print("\n=== INICIANDO ALGORITMO GENÉTICO ===")
+    # 1. Inicializar
+    poblacion = inicializar_poblacion(tam_poblacion=tam_poblacion, profundidad_inicial=profundidad_inicial)
+    
+    # 2. Bucle Generacional
+    for gen in range(generaciones):
+        # Evaluar
+        poblacion = evaluar_poblacion(dataset,poblacion)
         
-        # Generar dataset de entrenamiento con puntos aleatorios usando el modelo caja negra
-        print(f"Generando dataset exploratorio para {path_modelo}...")
-        bb = BlackBoxModel(path_modelo)
+        mejor_fitness = poblacion[0][1]
+        print(f"Generación {gen+1}/{generaciones} | Mejor Fitness (Accuracy): {mejor_fitness:.4f}")
         
-        # Generar puntos de manera más distribuida para encontrar ambas clases
-        X_points = []
-        Y_labels = []
+        # Si encontramos el modelo perfecto
+        if mejor_fitness >= 0.99:
+            print("¡Solución óptima alcanzada!")
+            break
+            
+        nueva_poblacion = []
         
-        # Muestreo en grid para capturar mejor las fronteras
-        rango = np.linspace(-10, 10, 30)
-        for i in rango:
-            for j in rango:
-                X_points.append([i, j])
+        # 3. Elitismo (Guardar los mejores)
+        elite = poblacion[:tam_elite]
+        nueva_poblacion.extend([(ind, 0.0) for ind, _ in elite]) # Reseteamos fitness para la sig generacion
+        
+        # 4. Cruzamiento y Mutación para rellenar la población
+        while len(nueva_poblacion) < tam_poblacion:
+            padre1 = seleccion_torneo(poblacion)
+            padre2 = seleccion_torneo(poblacion)
+            
+            if random.random() < prob_cruce:
+                hijo1, hijo2 = cruzar_arboles(padre1, padre2)
+            else:
+                hijo1, hijo2 = copy.deepcopy(padre1), copy.deepcopy(padre2)
                 
-        X_points = np.array(X_points)
-        Y_labels = bb.predict(X_points)
-        
-        self.dataset = [(x[0], x[1], y) for x, y in zip(X_points, Y_labels)]
-        clases, counts = np.unique(Y_labels, return_counts=True)
-        print(f"Dataset generado. Distribución de clases: {dict(zip(clases, counts))}")
-
-    def inicializar_poblacion(self):
-        """Inicializa la población de árboles con individuos aleatorios y calcula su fitness."""
-        poblacion = []
-        for _ in range(self.tam_poblacion):
-            arbol = generar_arbol_aleatorio(self.profundidad_inicial)
-            poblacion.append((arbol, 0.0))  # El fitness inicial es 0.0
-        return poblacion
-
-    def evaluar_poblacion(self, poblacion):
-        """Evalúa toda la población usando multiprocesamiento."""
-        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-            args = [(individuo, self.dataset) for individuo, fitness in poblacion]
-            resultados_fitness = pool.map(worker_evaluar, args)
-            
-        # Actualizamos la población con el fitness calculado (vector por pares: individuo, fitness)
-        poblacion_evaluada = [(poblacion[i][0], resultados_fitness[i]) for i in range(len(poblacion))]
-        
-        # Ordenamos de mayor a menor fitness
-        poblacion_evaluada.sort(key=lambda x: x[1], reverse=True)
-        return poblacion_evaluada
-
-    def seleccion_torneo(self, poblacion, k=3):
-        """Selección por torneo para elegir padres."""
-        seleccionados = random.sample(poblacion, k)
-        seleccionados.sort(key=lambda x: x[1], reverse=True)
-        return seleccionados[0][0] # Retorna el mejor individuo (árbol)
-
-    def ejecutar(self):
-        print("\n=== INICIANDO ALGORITMO GENÉTICO ===")
-        # 1. Inicializar
-        poblacion = self.inicializar_poblacion()
-        
-        # 2. Bucle Generacional
-        for gen in range(self.generaciones):
-            # Evaluar
-            poblacion = self.evaluar_poblacion(poblacion)
-            
-            mejor_fitness = poblacion[0][1]
-            print(f"Generación {gen+1}/{self.generaciones} | Mejor Fitness (Accuracy): {mejor_fitness:.4f}")
-            
-            # Si encontramos el modelo perfecto
-            if mejor_fitness >= 0.99:
-                print("¡Solución óptima alcanzada!")
-                break
+            if random.random() < prob_mutacion:
+                hijo1 = mutar_arbol(hijo1)
+            if random.random() < prob_mutacion:
+                hijo2 = mutar_arbol(hijo2)
                 
-            nueva_poblacion = []
-            
-            # 3. Elitismo (Guardar los mejores)
-            elite = poblacion[:self.tam_elite]
-            nueva_poblacion.extend([(ind, 0.0) for ind, fit in elite]) # Reseteamos fitness para la sig generacion
-            
-            # 4. Cruzamiento y Mutación para rellenar la población
-            while len(nueva_poblacion) < self.tam_poblacion:
-                padre1 = self.seleccion_torneo(poblacion)
-                padre2 = self.seleccion_torneo(poblacion)
+            nueva_poblacion.append((hijo1, 0.0))
+            if len(nueva_poblacion) < tam_poblacion:
+                nueva_poblacion.append((hijo2, 0.0))
                 
-                if random.random() < self.prob_cruce:
-                    hijo1, hijo2 = cruzar_arboles(padre1, padre2)
-                else:
-                    hijo1, hijo2 = copy.deepcopy(padre1), copy.deepcopy(padre2)
-                    
-                if random.random() < self.prob_mutacion:
-                    hijo1 = mutar_arbol(hijo1)
-                if random.random() < self.prob_mutacion:
-                    hijo2 = mutar_arbol(hijo2)
-                    
-                nueva_poblacion.append((hijo1, 0.0))
-                if len(nueva_poblacion) < self.tam_poblacion:
-                    nueva_poblacion.append((hijo2, 0.0))
-                    
-            poblacion = nueva_poblacion
+        poblacion = nueva_poblacion
 
-        # Evaluación final
-        poblacion = self.evaluar_poblacion(poblacion)
-        mejor_individuo = poblacion[0]
-        print("\n=== FIN DEL ALGORITMO ===")
-        print(f"Mejor Fitness Final: {mejor_individuo[1]:.4f}")
-        print(f"Ecuación Encontrada para la Frontera:\n{mejor_individuo[0]}")
-        return mejor_individuo
+    # Evaluación final
+    poblacion = evaluar_poblacion(dataset,poblacion)
+    mejor_individuo = poblacion[0]
+    print("\n=== FIN DEL ALGORITMO ===")
+    print(f"Mejor Fitness Final: {mejor_individuo[1]:.4f}")
+    print(f"Ecuación Encontrada para la Frontera:\n{mejor_individuo[0]}")
+    return mejor_individuo
 
 if __name__ == '__main__':
     # Ejecutamos el genético para el modelo A
@@ -257,12 +252,11 @@ if __name__ == '__main__':
     print("EJECUTANDO GENÉTICO PARA: blackbox_modelA.pkl")
     print("----------------------------------------------------")
     # Los parámetros: 20 individuos, 5 élite según las especificaciones
-    ag_A = AlgoritmoGenetico("blackbox_modelA.pkl", tam_poblacion=20, tam_elite=5, generaciones=20)
-    mejor_A = ag_A.ejecutar()
+    ag_A = genetico("blackbox_modelA.pkl", tam_poblacion=20, tam_elite=5, generaciones=20)
 
     # Ejecutamos el genético para el modelo B
     print("\n----------------------------------------------------")
     print("EJECUTANDO GENÉTICO PARA: blackbox_modelB.pkl")
     print("----------------------------------------------------")
-    ag_B = AlgoritmoGenetico("blackbox_modelB.pkl", tam_poblacion=20, tam_elite=5, generaciones=20)
-    mejor_B = ag_B.ejecutar()
+    ag_B = genetico("blackbox_modelB.pkl", tam_poblacion=20, tam_elite=5, generaciones=20)
+    
