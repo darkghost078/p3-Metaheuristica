@@ -166,6 +166,45 @@ def seleccion_torneo(poblacion, k=3):
     return seleccionados[0][0] # Retorna el mejor individuo (árbol)
     
 
+def puntos(bb):
+    print("\n=== Sacando puntos ===")
+    class0=[]
+    class1=[]
+    x=0
+    y=0
+    paso = 0.25
+    limite = paso
+    evaluados = set()
+
+    while len(class0) < 10 or len(class1) < 10:
+        values = np.arange(-limite, limite + paso, paso)
+        for x in values:
+            for y in values:
+                point = (round(x, 2), round(y, 2))
+
+                if point not in evaluados:
+                    evaluados.add(point)
+                
+                    clase = bb.predict([[point[0], point[1]]])[0]
+
+                    if clase == 0 and len(class0) < 10:
+                        class0.append((point[0], point[1], 0))
+                        print(f"[{point[0]}, {point[1]}] -> {len(class0)}/10 Clase 0")
+                            
+                    elif clase == 1 and len(class1) < 10:
+                        class1.append((point[0], point[1], 1))
+                        print(f"[{point[0]}, {point[1]}] -> {len(class1)}/10 Clase 1")
+
+                    if len(class0) == 10 and len(class1) == 10:
+                        break
+            
+            if len(class0) == 10 and len(class1) == 10:
+                break
+
+        limite+=paso
+        
+    return class0+class1
+
 # ==========================================
 # ALGORITMO GENÉTICO
 # ==========================================
@@ -176,18 +215,9 @@ def genetico(path_modelo, tam_poblacion=20, tam_elite=5, generaciones=50, prob_c
     bb = BlackBoxModel(path_modelo)
     
     # Generar puntos de manera más distribuida para encontrar ambas clases
-    X_points = []
-    Y_labels = []
+    X_points = puntos(bb)
+    Y_labels = [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1]
     
-    # Muestreo en grid para capturar mejor las fronteras
-    # rarete del -10 al 10 solo
-    rango = np.linspace(-10, 10, 30)
-    for i in rango:
-        for j in rango:
-            X_points.append([i, j])
-            
-    X_points = np.array(X_points)
-    Y_labels = bb.predict(X_points)
     
     dataset = [(x[0], x[1], y) for x, y in zip(X_points, Y_labels)]
     clases, counts = np.unique(Y_labels, return_counts=True)
