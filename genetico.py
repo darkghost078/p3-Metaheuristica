@@ -4,7 +4,7 @@ import copy
 import joblib
 import numpy as np
 import warnings
-from arbol import generar_arbol_aleatorio, Nodo
+from arbol import generar_arbol_aleatorio, encontrar_punto_mas_cercano, Nodo
 
 warnings.filterwarnings('ignore')
 
@@ -79,53 +79,9 @@ def mutar_arbol(arbol, profundidad_max=2):
 # ==========================================
 # EVALUACIÓN (FITNESS) PARA MULTIPROCESAMIENTO
 # ==========================================
-def score(args):
-    """
-    Función que evalúa a un individuo (árbol) sobre el dataset proporcionado.
-    Calcula el 'Balanced Accuracy' incorporando un MARGEN.
-    Las áreas de clasificación se definen por:
-      - f(x, y) > margen     -> Asignado a la Clase 1
-      - f(x, y) < -margen    -> Asignado a la Clase 0
-    Si cae en el medio, se cuenta como fallo al no superar la zona de incertidumbre.
-    """
-    individuo, dataset = args
-    tp = tn = fp = fn = 0
-    margen = 0.1
+def score(arbol, p):
+    p_opt = encontrar_punto_mas_cercano(arbol, p)
     
-    for x, y, true_class in dataset:
-        try:
-            res = individuo.evaluar(x, y)
-            import math
-            if math.isnan(res) or math.isinf(res):
-                continue
-            
-            # Evaluamos según el margen
-            if res > margen:
-                pred_class = 1
-            elif res < -margen:
-                pred_class = 0
-            else:
-                pred_class = -1 # Indecisión / Dentro de la frontera
-            
-            # Comparar con el modelo que da el profesor
-            if true_class == 1:
-                if pred_class == 1: tp += 1
-                else: fn += 1
-            elif true_class == 0:
-                if pred_class == 0: tn += 1
-                else: fp += 1
-        except Exception:
-            pass
-            
-    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
-    tnr = tn / (tn + fp) if (tn + fp) > 0 else 0
-    balanced_acc = (tpr + tnr) / 2
-    
-    # Penalización
-    tamano = len(obtener_nodos(individuo))
-    fitness = balanced_acc - (tamano * 0.001)
-    
-    return fitness if fitness > 0 else 0.0
 
 # ==========================================
 # CLASE MODELO CAJA NEGRA

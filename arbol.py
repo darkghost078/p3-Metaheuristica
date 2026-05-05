@@ -61,14 +61,6 @@ class DivisionProtegida(Nodo):
     def __str__(self):
         return f"({self.izq} / {self.der})"
 
-# --- Operadores Unarios ---
-class Seno(Nodo):
-    def __init__(self, hijo):
-        self.hijo = hijo
-    def evaluar(self, x, y):
-        return math.sin(self.hijo.evaluar(x, y))
-    def __str__(self):
-        return f"sin({self.hijo})"
 
 
 # ==========================================
@@ -87,8 +79,8 @@ def generar_arbol_aleatorio(profundidad_maxima):
             
     # CASO RECURSIVO: Elegimos qué tipo de nodo crear
     # Usamos pesos para favorecer que el árbol crezca un poco antes de cerrarse prematuramente
-    opciones = ['terminal', 'unario', 'binario']
-    pesos = [1, 2, 5] 
+    opciones = ['terminal', 'binario']
+    pesos = [1, 5] 
     tipo_nodo = random.choices(opciones, weights=pesos)[0]
     
     if tipo_nodo == 'terminal':
@@ -97,10 +89,6 @@ def generar_arbol_aleatorio(profundidad_maxima):
         else:
             return Constante()
             
-    elif tipo_nodo == 'unario':
-        # Instanciamos un operador unario y generamos su hijo
-        hijo = generar_arbol_aleatorio(profundidad_maxima - 1)
-        return Seno(hijo)
         
     else: # binario
         # Generamos los dos hijos recursivamente
@@ -111,6 +99,47 @@ def generar_arbol_aleatorio(profundidad_maxima):
         Operador = random.choice([Suma, Resta, Multiplicacion, DivisionProtegida])
         return Operador(hijo_izq, hijo_der)
 
+def encontrar_punto_mas_cercano(arbol, punto_origen):
+    """
+    Dado un árbol y un punto de origen (x0, y0), encuentra el punto (x, y)
+    más cercano que pertenezca a la frontera f(x, y) = 0.
+    """
+    x0, y0 = punto_origen
+    
+    def distancia_cuadrada(vars):
+        x, y = vars
+        return (x - x0)**2 + (y - y0)**2
+        
+    def restriccion_frontera(vars):
+        x, y = vars
+        try:
+            return arbol.evaluar(x, y)
+        except Exception:
+            return 1e9
+            
+    restricciones = [{'type': 'eq', 'fun': restriccion_frontera}]
+    
+    punto_inicial = np.array([x0, y0])
+    
+    resultado = minimize(
+        distancia_cuadrada, 
+        punto_inicial, 
+        method='SLSQP', 
+        constraints=restricciones,
+        options={'maxiter': 1000, 'ftol': 1e-6}
+    )
+    
+    if resultado.success:
+        x_opt, y_opt = resultado.x
+        
+        if abs(arbol.evaluar(x_opt, y_opt)) < 1e-3:
+            return (x_opt, y_opt)
+        else:
+            print("El optimizador terminó, pero el punto no está exactamente en la frontera.")
+            return (x_opt, y_opt)
+    else:
+        print(f"No se pudo encontrar un punto convergente: {resultado.message}")
+        return None
 
 # ==========================================
 # 3. BLOQUE MAIN
