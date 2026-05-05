@@ -4,7 +4,8 @@ import copy
 import joblib
 import numpy as np
 import warnings
-from arbol import generar_arbol_aleatorio, encontrar_punto_mas_cercano, Nodo
+
+from arbol import generar_arbol_aleatorio, encontrar_punto_mas_cercano, Nodo, generar_puntos_ortogonales,generar_vecindad_frontera,calcular_gradiente,encontrar_punto_mas_cercano
 
 warnings.filterwarnings('ignore')
 
@@ -79,9 +80,47 @@ def mutar_arbol(arbol, profundidad_max=2):
 # ==========================================
 # EVALUACIÓN (FITNESS) PARA MULTIPROCESAMIENTO
 # ==========================================
-def score(arbol, p):
+
+def score_wrapper(params):
+    return score(*params)
+
+def score(arbol, p, bb):
     p_opt = encontrar_punto_mas_cercano(arbol, p)
+
+    if p_opt is None:
+        return 0.0
     
+    points=generar_vecindad_frontera(arbol,p_opt)
+    fitnessPoints=generar_puntos_ortogonales(arbol,points)
+    wellClassified=0
+
+    for point in fitnessPoints:
+        predictMod1=bb.predict([point[0]])[0]
+        predictMod2=bb.predict([point[1]])[0]
+
+
+        predict1 =arbol.evaluar(point[0][0],point[0][1])
+        predict2 =arbol.evaluar(point[1][0],point[1][1])
+
+        if predict1>0:
+            predict1=1
+        else:
+            predict1=0
+        
+        if predict2>0:
+            predict2=1
+        else:
+            predict2=0
+
+
+        if predict1==predictMod1 and predict2==predictMod2 and predict1!=predict2:
+            wellClassified+=1
+
+    if(len(fitnessPoints))==0:
+        return 0.0
+    return wellClassified/len(fitnessPoints)
+
+
 
 # ==========================================
 # CLASE MODELO CAJA NEGRA
@@ -102,11 +141,11 @@ def inicializar_poblacion(tam_poblacion,profundidad_inicial):
         poblacion.append((arbol, 0.0))  # El fitness inicial es 0.0
     return poblacion
 
-def evaluar_poblacion(dataset, poblacion):
+def evaluar_poblacion(poblacion,p,bb):
     """Evalúa toda la población usando multiprocesamiento."""
     with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-        args = [(individuo, dataset) for individuo, _ in poblacion]
-        resultados_fitness = pool.map(score, args)
+        params = [(individuo, p,bb) for individuo, _ in poblacion]
+        resultados_fitness = pool.map(score_wrapper, params)
         
     # Actualizamos la población con el fitness calculado (vector por pares: individuo, fitness)
     poblacion_evaluada = [(poblacion[i][0], resultados_fitness[i]) for i in range(len(poblacion))]
@@ -122,44 +161,45 @@ def seleccion_torneo(poblacion, k=3):
     return seleccionados[0][0] # Retorna el mejor individuo (árbol)
     
 
+
 def puntos(bb):
-    print("\n=== Sacando puntos ===")
-    class0=[]
-    class1=[]
-    x=0
-    y=0
+    print("\n=== Buscando puntos de ambas clases ===")
+    
+    class0 = []
+    class1 = []
     paso = 0.25
     limite = paso
-    evaluados = set()
 
-    while len(class0) < 10 or len(class1) < 10:
+    while len(class0) == 0 or len(class1) == 0:
         values = np.arange(-limite, limite + paso, paso)
+        
         for x in values:
             for y in values:
-                point = (round(x, 2), round(y, 2))
 
-                if point not in evaluados:
-                    evaluados.add(point)
+                punto = np.array([[round(x, 2), round(y, 2)]])
                 
-                    clase = bb.predict([[point[0], point[1]]])[0]
-
-                    if clase == 0 and len(class0) < 10:
-                        class0.append((point[0], point[1], 0))
-                        print(f"[{point[0]}, {point[1]}] -> {len(class0)}/10 Clase 0")
-                            
-                    elif clase == 1 and len(class1) < 10:
-                        class1.append((point[0], point[1], 1))
-                        print(f"[{point[0]}, {point[1]}] -> {len(class1)}/10 Clase 1")
-
-                    if len(class0) == 10 and len(class1) == 10:
-                        break
-            
-            if len(class0) == 10 and len(class1) == 10:
+                prediccion = bb.predict(punto)[0]
+                
+                if prediccion == 0 and len(class0) < 50:
+                    class0.append(punto[0])
+                elif prediccion == 1 and len(class1) < 50:
+                    class1.append(punto[0])
+                
+                if len(class0) > 0 and len(class1) > 0:
+                    break
+            if len(class0) > 0 and len(class1) > 0:
                 break
-
-        limite+=paso
         
-    return class0+class1
+        if len(class0) == 0 or len(class1) == 0:
+            limite += paso
+            if limite > 100:
+                print("Límite de búsqueda excedido.")
+                return class0 + class1
+
+    if len(class0) < len(class1):
+        return class0
+    else:
+        return class1
 
 # ==========================================
 # ALGORITMO GENÉTICO
@@ -171,14 +211,9 @@ def genetico(path_modelo, tam_poblacion=20, tam_elite=5, generaciones=50, prob_c
     bb = BlackBoxModel(path_modelo)
     
     # Generar puntos de manera más distribuida para encontrar ambas clases
-    X_points = puntos(bb)
-    Y_labels = [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1]
+    p=puntos(bb)[0]
     
     
-    dataset = [(x[0], x[1], y) for x, y in zip(X_points, Y_labels)]
-    clases, counts = np.unique(Y_labels, return_counts=True)
-    print(f"Dataset generado. Distribución de clases: {dict(zip(clases, counts))}")
-
 
     print("\n=== INICIANDO ALGORITMO GENÉTICO ===")
     # 1. Inicializar
@@ -187,7 +222,7 @@ def genetico(path_modelo, tam_poblacion=20, tam_elite=5, generaciones=50, prob_c
     # 2. Bucle Generacional
     for gen in range(generaciones):
         # Evaluar
-        poblacion = evaluar_poblacion(dataset,poblacion)
+        poblacion = evaluar_poblacion(poblacion,p,bb)
         
         mejor_fitness = poblacion[0][1]
         print(f"Generación {gen+1}/{generaciones} | Mejor Fitness (Accuracy): {mejor_fitness:.4f}")
@@ -225,12 +260,12 @@ def genetico(path_modelo, tam_poblacion=20, tam_elite=5, generaciones=50, prob_c
         poblacion = nueva_poblacion
 
     # Evaluación final
-    poblacion = evaluar_poblacion(dataset,poblacion)
+    poblacion = evaluar_poblacion(poblacion,p,bb)
     mejor_individuo = poblacion[0]
     print("\n=== FIN DEL ALGORITMO ===")
     print(f"Mejor Fitness Final: {mejor_individuo[1]:.4f}")
     print(f"Ecuación Encontrada para la Frontera:\n{mejor_individuo[0]}")
-    return mejor_individuo
+    return mejor_individuo[0]
 
 if __name__ == '__main__':
     # Ejecutamos el genético para el modelo A
@@ -239,10 +274,12 @@ if __name__ == '__main__':
     print("----------------------------------------------------")
     # Los parámetros: 20 individuos, 5 élite según las especificaciones
     ag_A = genetico("blackbox_modelA.pkl", tam_poblacion=20, tam_elite=5, generaciones=20)
-
+    ag_A.graf()
     # Ejecutamos el genético para el modelo B
     print("\n----------------------------------------------------")
     print("EJECUTANDO GENÉTICO PARA: blackbox_modelB.pkl")
     print("----------------------------------------------------")
     ag_B = genetico("blackbox_modelB.pkl", tam_poblacion=20, tam_elite=5, generaciones=20)
+    ag_B.graf()
+
     

@@ -1,5 +1,8 @@
 import math
 import random
+import numpy as np
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
 
 # ==========================================
 # 1. DEFINICIÓN DE CLASES (AST)
@@ -7,6 +10,41 @@ import random
 class Nodo:
     def evaluar(self, x, y):
         raise NotImplementedError()
+    
+    def graf(self, limite_inferior=-5.0, limite_superior=5.0, resolucion=200):
+        """
+        Método de instancia que grafica la frontera f(x,y) = 0 en el plano 2D.
+        """
+        # 1. Generación de los ejes espaciales
+        x_vals = np.linspace(limite_inferior, limite_superior, resolucion)
+        y_vals = np.linspace(limite_inferior, limite_superior, resolucion)
+        
+        # 2. Creación de la malla bidimensional
+        X, Y = np.meshgrid(x_vals, y_vals)
+        
+        # 3. Vectorización y evaluación
+        evaluar_vectorizado = np.vectorize(self.evaluar)
+        Z = evaluar_vectorizado(X, Y)
+        
+        # 4. Configuración del entorno 2D estándar
+        fig, ax = plt.subplots(figsize=(8, 8))
+        
+        # 5. Renderizado de la curva de nivel (frontera)
+        # Le indicamos a matplotlib que solo dibuje la línea donde Z es exactamente 0
+        frontera = ax.contour(X, Y, Z, levels=[0], colors='red', linewidths=2)
+        
+        # 6. Etiquetas y formato del plano
+        ax.set_xlabel('Eje X')
+        ax.set_ylabel('Eje Y')
+        ax.set_title(f'Frontera de decisión f(x,y) = 0\n{str(self)}')
+        
+        # Añadimos una cuadrícula de fondo y líneas en los ejes 0 para dar contexto
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.axhline(0, color='black', linewidth=1)
+        ax.axvline(0, color='black', linewidth=1)
+        
+        # Mostrar el gráfico por pantalla
+        plt.show()
 
 # --- Terminales (Hojas) ---
 class Variable(Nodo):
@@ -99,6 +137,8 @@ def generar_arbol_aleatorio(profundidad_maxima):
         Operador = random.choice([Suma, Resta, Multiplicacion, DivisionProtegida])
         return Operador(hijo_izq, hijo_der)
 
+
+
 def encontrar_punto_mas_cercano(arbol, punto_origen):
     """
     Dado un árbol y un punto de origen (x0, y0), encuentra el punto (x, y)
@@ -106,19 +146,26 @@ def encontrar_punto_mas_cercano(arbol, punto_origen):
     """
     x0, y0 = punto_origen
     
+    # 1. Función objetivo: Minimizar la distancia al cuadrado
+    # Es más eficiente computacionalmente minimizar la distancia al cuadrado que la raíz cuadrada
     def distancia_cuadrada(vars):
         x, y = vars
         return (x - x0)**2 + (y - y0)**2
         
+    # 2. Restricción: El punto debe evaluar a 0 en tu árbol de gramática
     def restriccion_frontera(vars):
         x, y = vars
+        # Protegemos contra posibles desbordamientos matemáticos
         try:
             return arbol.evaluar(x, y)
         except Exception:
-            return 1e9
+            return 1e9 # Penalización alta si la evaluación falla
             
+    # Definimos la restricción de igualdad (eq): f(x, y) == 0 para scipy
     restricciones = [{'type': 'eq', 'fun': restriccion_frontera}]
     
+    # 3. Optimización
+    # Usamos el propio punto de origen como semilla inicial de búsqueda
     punto_inicial = np.array([x0, y0])
     
     resultado = minimize(
@@ -132,14 +179,100 @@ def encontrar_punto_mas_cercano(arbol, punto_origen):
     if resultado.success:
         x_opt, y_opt = resultado.x
         
+        # Verificación final para asegurar que realmente estamos en la frontera
         if abs(arbol.evaluar(x_opt, y_opt)) < 1e-3:
             return (x_opt, y_opt)
         else:
             print("El optimizador terminó, pero el punto no está exactamente en la frontera.")
             return (x_opt, y_opt)
     else:
-        print(f"No se pudo encontrar un punto convergente: {resultado.message}")
+        #print(f"No se pudo encontrar un punto convergente: {resultado.message}")
         return None
+    
+def calcular_gradiente(arbol, x, y, h=1e-5):
+    """
+    Calcula el gradiente numérico (derivadas parciales) en un punto dado.
+    """
+    df_dx = (arbol.evaluar(x + h, y) - arbol.evaluar(x - h, y)) / (2 * h)
+    df_dy = (arbol.evaluar(x, y + h) - arbol.evaluar(x, y - h)) / (2 * h)
+    return df_dx, df_dy
+
+def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
+    """
+    Genera puntos a lo largo de la frontera f(x,y)=0 usando la recta tangente 
+    como guía y proyectándolos para que sean (aproximadamente) equidistantes.
+    """
+    x_c, y_c = punto_centro
+    puntos_frontera = []
+    
+    # 1. Obtenemos el vector gradiente en el centro
+    gx, gy = calcular_gradiente(arbol, x_c, y_c)
+    norma = np.hypot(gx, gy) # Equivalente a sqrt(gx^2 + gy^2)
+    
+    if norma < 1e-8:
+        print("Advertencia: El gradiente es casi nulo. Usando dirección horizontal.")
+        tx, ty = 1.0, 0.0
+    else:
+        # 2. Calculamos el vector tangente unitario (perpendicular al gradiente)
+        tx, ty = -gy / norma, gx / norma
+
+    # 3. Generamos distancias equidistantes centradas en 0
+    # Ejemplo para 100 puntos: vamos desde una distancia -D hasta +D
+    distancias_t = np.linspace(-paso * (num_puntos // 2), paso * (num_puntos // 2), num_puntos)
+    
+    for t in distancias_t:
+        # Si estamos exactamente en el centro, simplemente agregamos el punto original
+        if abs(t) < 1e-6:
+            puntos_frontera.append((x_c, y_c))
+            continue
+            
+        # Semilla inicial sobre la recta tangente
+        x_guess = x_c + t * tx
+        y_guess = y_c + t * ty
+        
+        # 4. Proyectamos la semilla a la frontera real usando tu optimizador
+        punto_proyectado = encontrar_punto_mas_cercano(arbol, (x_guess, y_guess))
+        
+        if punto_proyectado:
+            puntos_frontera.append(punto_proyectado)
+            
+    return puntos_frontera
+
+def generar_puntos_ortogonales(arbol, puntos_frontera, distancias=[0.1, 0.2, 0.3]):
+    """
+    Dado un conjunto de puntos en la frontera f(x,y)=0, genera pares de puntos
+    ortogonales (uno a cada lado) a distancias incrementales.
+    Retorna una lista de la misma longitud que puntos_frontera.
+    """
+    vector_ortogonales = []
+    
+    for x, y in puntos_frontera:
+        # 1. Calculamos el gradiente en el punto de la frontera
+        gx, gy = calcular_gradiente(arbol, x, y)
+        norma = np.hypot(gx, gy)
+        
+        # 2. Vector normal unitario (apunta perpendicular a la frontera)
+        if norma < 1e-8:
+            # Si la derivada es 0 (ej. en una zona plana o constante), usamos un vector por defecto
+            nx, ny = 0.0, 1.0
+        else:
+            nx, ny = gx / norma, gy / norma
+            
+
+        
+        # 3. Generamos los pares de puntos para cada distancia
+        for d in distancias:
+            # Punto a un lado (sumando el vector normal)
+            p_mas = (x + d * nx, y + d * ny)
+            # Punto al otro lado (restando el vector normal)
+            p_menos = (x - d * nx, y - d * ny)
+            
+            # Guardamos la tupla con ambos puntos
+            vector_ortogonales.append((p_mas, p_menos))
+            
+        
+    return vector_ortogonales
+
 
 # ==========================================
 # 3. BLOQUE MAIN
