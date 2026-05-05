@@ -13,7 +13,7 @@ class Nodo:
     
     def graf(self, limite_inferior=-5.0, limite_superior=5.0, resolucion=200):
         """
-        Método de instancia que grafica la frontera f(x,y) = 0 en el plano 2D.
+        Grafica la frontera f(x,y) = 0 y colorea la región positiva.
         """
         # 1. Generación de los ejes espaciales
         x_vals = np.linspace(limite_inferior, limite_superior, resolucion)
@@ -26,24 +26,30 @@ class Nodo:
         evaluar_vectorizado = np.vectorize(self.evaluar)
         Z = evaluar_vectorizado(X, Y)
         
-        # 4. Configuración del entorno 2D estándar
+        # 4. Configuración del entorno 2D
         fig, ax = plt.subplots(figsize=(8, 8))
         
-        # 5. Renderizado de la curva de nivel (frontera)
-        # Le indicamos a matplotlib que solo dibuje la línea donde Z es exactamente 0
-        frontera = ax.contour(X, Y, Z, levels=[0], colors='red', linewidths=2)
+        # --- CAMBIOS PRINCIPALES ---
         
-        # 6. Etiquetas y formato del plano
+        # A. Colorear la región positiva
+        # Usamos niveles desde 0 hasta el máximo de Z para rellenar
+        relleno = ax.contourf(X, Y, Z, levels=[0, Z.max() if Z.max() > 0 else 1], 
+                             colors=['#e6f3ff'], alpha=0.5)
+        
+        # B. Dibujar la línea de la frontera (f(x,y) = 0)
+        ax.contour(X, Y, Z, levels=[0], colors='red', linewidths=2)
+        
+        # ---------------------------
+        
+        # 6. Etiquetas y formato
         ax.set_xlabel('Eje X')
         ax.set_ylabel('Eje Y')
-        ax.set_title(f'Frontera de decisión f(x,y) = 0\n{str(self)}')
+        ax.set_title(f'Frontera de decisión y región positiva\n{str(self)}')
         
-        # Añadimos una cuadrícula de fondo y líneas en los ejes 0 para dar contexto
         ax.grid(True, linestyle='--', alpha=0.6)
         ax.axhline(0, color='black', linewidth=1)
         ax.axvline(0, color='black', linewidth=1)
         
-        # Mostrar el gráfico por pantalla
         plt.show()
 
 # --- Terminales (Hojas) ---
