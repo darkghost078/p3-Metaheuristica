@@ -228,44 +228,45 @@ def calcular_gradiente(arbol, x, y, h=1e-5):
 
 def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
     """
-    Genera puntos a lo largo de la frontera f(x,y)=0 usando la recta tangente
-    como guía y proyectándolos para que sean (aproximadamente) equidistantes.
+    Genera puntos iterativamente a lo largo de la frontera f(x,y)=0.
+    Sigue la tangente local paso a paso y proyecta hacia la curva real.
     """
-    x_c, y_c = punto_centro
-    puntos_frontera = []
+    mitad = num_puntos // 2
 
-    # 1. Obtenemos el vector gradiente en el centro
-    gx, gy = calcular_gradiente(arbol, x_c, y_c)
-    norma = np.hypot(gx, gy)  # Equivalente a sqrt(gx^2 + gy^2)
+    def avanzar_sobre_curva(punto_inicial, direccion, pasos):
+        puntos = []
+        pto_actual = punto_inicial
 
-    if norma < 1e-8:
-        print("Advertencia: El gradiente es casi nulo. Usando dirección horizontal.")
-        tx, ty = 1.0, 0.0
-    else:
-        # 2. Calculamos el vector tangente unitario (perpendicular al gradiente)
-        tx, ty = -gy / norma, gx / norma
+        for _ in range(pasos):
+            x_c, y_c = pto_actual
+            gx, gy = calcular_gradiente(arbol, x_c, y_c)
+            norma = np.hypot(gx, gy)
 
-    # 3. Generamos distancias equidistantes centradas en 0
-    # Ejemplo para 100 puntos: vamos desde una distancia -D hasta +D
-    distancias_t = np.linspace(
-        -paso * (num_puntos // 2), paso * (num_puntos // 2), num_puntos
-    )
+            if norma < 1e-8:
+                tx, ty = 1.0, 0.0
+            else:
+                tx, ty = -gy / norma, gx / norma
 
-    for t in distancias_t:
-        # Si estamos exactamente en el centro, simplemente agregamos el punto original
-        if abs(t) < 1e-6:
-            puntos_frontera.append((x_c, y_c))
-            continue
+            if direccion < 0:
+                tx, ty = -tx, -ty
 
-        # Semilla inicial sobre la recta tangente
-        x_guess = x_c + t * tx
-        y_guess = y_c + t * ty
+            x_guess = x_c + paso * tx
+            y_guess = y_c + paso * ty
 
-        # 4. Proyectamos la semilla a la frontera real usando tu optimizador
-        punto_proyectado = encontrar_punto_mas_cercano(arbol, (x_guess, y_guess))
+            punto_proyectado = encontrar_punto_mas_cercano(arbol, (x_guess, y_guess))
 
-        if punto_proyectado:
-            puntos_frontera.append(punto_proyectado)
+            if punto_proyectado:
+                puntos.append(punto_proyectado)
+                pto_actual = punto_proyectado
+            else:
+                break
+
+        return puntos
+
+    puntos_positivos = avanzar_sobre_curva(punto_centro, 1, mitad)
+    puntos_negativos = avanzar_sobre_curva(punto_centro, -1, mitad)
+
+    puntos_frontera = puntos_negativos[::-1] + [punto_centro] + puntos_positivos
 
     return puntos_frontera
 
