@@ -121,7 +121,7 @@ class DivisionProtegida(Nodo):
     def evaluar(self, x, y):
         den = self.der.evaluar(x, y)
         if abs(den) < 1e-6:
-            return 0.0
+            return 1e9
         return self.izq.evaluar(x, y) / den
 
     def __str__(self):
@@ -237,15 +237,20 @@ def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
         puntos = []
         pto_actual = punto_inicial
 
+        tx_prev, ty_prev = 1.0, 0.0
+
         for _ in range(pasos):
             x_c, y_c = pto_actual
             gx, gy = calcular_gradiente(arbol, x_c, y_c)
             norma = np.hypot(gx, gy)
 
-            if norma < 1e-8:
+            if np.isnan(norma) or np.isinf(norma) or norma > 1e6:
+                tx, ty = tx_prev, ty_prev
+            elif norma < 1e-8:
                 tx, ty = 1.0, 0.0
             else:
                 tx, ty = -gy / norma, gx / norma
+                tx_prev, ty_prev = tx, ty
 
             if direccion < 0:
                 tx, ty = -tx, -ty
@@ -259,7 +264,7 @@ def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
                 puntos.append(punto_proyectado)
                 pto_actual = punto_proyectado
             else:
-                break
+                pto_actual = (x_c + paso * tx * 2.0, y_c + paso * ty * 2.0)
 
         return puntos
 

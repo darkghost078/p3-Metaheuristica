@@ -105,7 +105,7 @@ def score(arbol, p, bb):
     if p_opt is None:
         return 0.0
 
-    num_puntos_esperados = 300
+    num_puntos_esperados = 100
     distancias_prueba = [0.2, 0.4, 0.6]
 
     points = generar_vecindad_frontera(
