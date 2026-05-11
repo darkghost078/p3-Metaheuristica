@@ -56,8 +56,6 @@ class Nodo:
         ax.axhline(0, color="black", linewidth=1)
         ax.axvline(0, color="black", linewidth=1)
 
-        plt.show()
-
 
 # --- Terminales (Hojas) ---
 class Variable(Nodo):

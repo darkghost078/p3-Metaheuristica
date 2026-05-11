@@ -4,6 +4,7 @@ import copy
 import joblib
 import numpy as np
 import warnings
+import matplotlib.pyplot as plt
 
 from arbol import (
     generar_arbol_aleatorio,
@@ -104,8 +105,10 @@ def score(arbol, p, bb):
     if p_opt is None:
         return 0.0
 
-    points = generar_vecindad_frontera(arbol, p_opt)
-    fitnessPoints = generar_puntos_ortogonales(arbol, points)
+    points = generar_vecindad_frontera(arbol, p_opt, paso=0.15)
+    fitnessPoints = generar_puntos_ortogonales(
+        arbol, points, distancias=[0.2, 0.4, 0.6]
+    )
     wellClassified = 0
 
     for point in fitnessPoints:
@@ -127,7 +130,7 @@ def score(arbol, p, bb):
     accuracy = wellClassified / len(fitnessPoints)
 
     height = altura_arbol(arbol)
-    coef_penal = 0.015
+    coef_penal = 0.005
 
     fitness_final = accuracy - (coef_penal * height)
     return max(0.0, fitness_final)
@@ -215,6 +218,77 @@ def puntos(bb):
         return class1
 
 
+def graficar_fitness_resultado(
+    arbol, punto_origen, distancias=[0.1, 0.2, 0.3], paso=0.05
+):
+    print(f"\n--- Generando gráfica de fitness para el punto origen {punto_origen} ---")
+    punto_central = encontrar_punto_mas_cercano(arbol, punto_origen)
+
+    if not punto_central:
+        print(
+            "El optimizador falló o devolvió nulo. No hay frontera útil para graficar."
+        )
+        return
+
+    puntos_frontera = generar_vecindad_frontera(
+        arbol, punto_central, num_puntos=100, paso=paso
+    )
+    vector_ortogonales = generar_puntos_ortogonales(
+        arbol, puntos_frontera, distancias=distancias
+    )
+
+    plt.figure(figsize=(10, 10))
+
+    X_front = [p[0] for p in puntos_frontera]
+    Y_front = [p[1] for p in puntos_frontera]
+    plt.plot(X_front, Y_front, "b-", label="Frontera f(x,y)=0", linewidth=2)
+
+    colores = ["r", "g", "orange"]
+
+    # Extraemos los puntos leyendo la lista plana con saltos proporcionales
+    for idx_distancia, d in enumerate(distancias):
+        x_mas, y_mas = [], []
+        x_menos, y_menos = [], []
+
+        for i in range(idx_distancia, len(vector_ortogonales), len(distancias)):
+            p_m, p_me = vector_ortogonales[i]
+            x_mas.append(p_m[0])
+            y_mas.append(p_m[1])
+            x_menos.append(p_me[0])
+            y_menos.append(p_me[1])
+
+        plt.scatter(
+            x_mas,
+            y_mas,
+            color=colores[idx_distancia],
+            s=10,
+            alpha=0.6,
+            label=f"Distancia +{d}",
+        )
+        plt.scatter(
+            x_menos,
+            y_menos,
+            color=colores[idx_distancia],
+            s=10,
+            alpha=0.6,
+            marker="x",
+            label=f"Distancia -{d}",
+        )
+
+    plt.plot(
+        punto_origen[0], punto_origen[1], "k*", markersize=12, label="Punto Origen"
+    )
+
+    plt.axhline(0, color="black", linewidth=0.5)
+    plt.axvline(0, color="black", linewidth=0.5)
+    plt.grid(color="gray", linestyle="--", linewidth=0.2)
+    plt.legend()
+    plt.title("Puntos de Evaluación de Fitness del Mejor Individuo")
+    plt.xlabel("Eje X")
+    plt.ylabel("Eje Y")
+    plt.axis("equal")
+
+
 # ==========================================
 # ALGORITMO GENÉTICO
 # ==========================================
@@ -293,7 +367,7 @@ def genetico(
     print("\n=== FIN DEL ALGORITMO ===")
     print(f"Mejor Fitness Final: {mejor_individuo[1]:.4f}")
     print(f"Ecuación Encontrada para la Frontera:\n{mejor_individuo[0]}")
-    return mejor_individuo[0]
+    return mejor_individuo[0], p
 
 
 if __name__ == "__main__":
@@ -302,15 +376,19 @@ if __name__ == "__main__":
     print("EJECUTANDO GENÉTICO PARA: blackbox_modelA.pkl")
     print("----------------------------------------------------")
     # Los parámetros: 20 individuos, 5 élite según las especificaciones
-    ag_A = genetico(
-        "blackbox_modelA.pkl", tam_poblacion=20, tam_elite=5, generaciones=20
+    ag_A, point_A = genetico(
+        "blackbox_modelA.pkl", tam_poblacion=20, tam_elite=2, generaciones=20
     )
     ag_A.graf()
+    graficar_fitness_resultado(ag_A, point_A, distancias=[0.2, 0.4, 0.6], paso=0.15)
+    plt.show()
     # Ejecutamos el genético para el modelo B
     print("\n----------------------------------------------------")
     print("EJECUTANDO GENÉTICO PARA: blackbox_modelB.pkl")
     print("----------------------------------------------------")
-    ag_B = genetico(
-        "blackbox_modelB.pkl", tam_poblacion=20, tam_elite=5, generaciones=20
+    ag_B, point_B = genetico(
+        "blackbox_modelB.pkl", tam_poblacion=20, tam_elite=2, generaciones=20
     )
     ag_B.graf()
+    graficar_fitness_resultado(ag_B, point_B, distancias=[0.2, 0.4, 0.6], paso=0.15)
+    plt.show()
