@@ -121,7 +121,7 @@ class DivisionProtegida(Nodo):
     def evaluar(self, x, y):
         den = self.der.evaluar(x, y)
         if abs(den) < 1e-6:
-            return 1.0  # Protección
+            return 0.0
         return self.izq.evaluar(x, y) / den
 
     def __str__(self):

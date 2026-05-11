@@ -105,18 +105,32 @@ def score(arbol, p, bb):
     if p_opt is None:
         return 0.0
 
-    points = generar_vecindad_frontera(arbol, p_opt, paso=0.15)
-    fitnessPoints = generar_puntos_ortogonales(
-        arbol, points, distancias=[0.2, 0.4, 0.6]
+    num_puntos_esperados = 300
+    distancias_prueba = [0.2, 0.4, 0.6]
+
+    points = generar_vecindad_frontera(
+        arbol, p_opt, num_puntos=num_puntos_esperados, paso=0.15
     )
+    fitnessPoints = generar_puntos_ortogonales(
+        arbol, points, distancias=distancias_prueba
+    )
+
     wellClassified = 0
+
+    total_evaluaciones_esperadas = num_puntos_esperados * len(distancias_prueba)
+
+    if total_evaluaciones_esperadas == 0:
+        return 0.0
 
     for point in fitnessPoints:
         predictMod1 = bb.predict([point[0]])[0]
         predictMod2 = bb.predict([point[1]])[0]
 
-        predict1 = arbol.evaluar(point[0][0], point[0][1])
-        predict2 = arbol.evaluar(point[1][0], point[1][1])
+        try:
+            predict1 = arbol.evaluar(point[0][0], point[0][1])
+            predict2 = arbol.evaluar(point[1][0], point[1][1])
+        except Exception:
+            continue
 
         predict1 = 1 if predict1 > 0 else 0
         predict2 = 1 if predict2 > 0 else 0
@@ -124,10 +138,7 @@ def score(arbol, p, bb):
         if predict1 == predictMod1 and predict2 == predictMod2 and predict1 != predict2:
             wellClassified += 1
 
-    if len(fitnessPoints) == 0:
-        return 0.0
-
-    accuracy = wellClassified / len(fitnessPoints)
+    accuracy = wellClassified / total_evaluaciones_esperadas
 
     height = altura_arbol(arbol)
     coef_penal = 0.005
