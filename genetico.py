@@ -8,11 +8,10 @@ import warnings
 from arbol import (
     generar_arbol_aleatorio,
     encontrar_punto_mas_cercano,
-    Nodo,
     generar_puntos_ortogonales,
     generar_vecindad_frontera,
-    calcular_gradiente,
-    encontrar_punto_mas_cercano,
+    altura_arbol,
+    simplificar,
 )
 
 warnings.filterwarnings("ignore")
@@ -116,22 +115,22 @@ def score(arbol, p, bb):
         predict1 = arbol.evaluar(point[0][0], point[0][1])
         predict2 = arbol.evaluar(point[1][0], point[1][1])
 
-        if predict1 > 0:
-            predict1 = 1
-        else:
-            predict1 = 0
-
-        if predict2 > 0:
-            predict2 = 1
-        else:
-            predict2 = 0
+        predict1 = 1 if predict1 > 0 else 0
+        predict2 = 1 if predict2 > 0 else 0
 
         if predict1 == predictMod1 and predict2 == predictMod2 and predict1 != predict2:
             wellClassified += 1
 
-    if (len(fitnessPoints)) == 0:
+    if len(fitnessPoints) == 0:
         return 0.0
-    return wellClassified / len(fitnessPoints)
+
+    accuracy = wellClassified / len(fitnessPoints)
+
+    height = altura_arbol(arbol)
+    coef_penal = 0.015
+
+    fitness_final = accuracy - (coef_penal * height)
+    return max(0.0, fitness_final)
 
 
 # ==========================================
@@ -278,6 +277,9 @@ def genetico(
                 hijo1 = mutar_arbol(hijo1)
             if random.random() < prob_mutacion:
                 hijo2 = mutar_arbol(hijo2)
+
+            hijo1 = simplificar(hijo1)
+            hijo2 = simplificar(hijo2)
 
             nueva_poblacion.append((hijo1, 0.0))
             if len(nueva_poblacion) < tam_poblacion:

@@ -1,4 +1,3 @@
-import math
 import random
 import numpy as np
 from scipy.optimize import minimize
@@ -34,7 +33,7 @@ class Nodo:
 
         # A. Colorear la región positiva
         # Usamos niveles desde 0 hasta el máximo de Z para rellenar
-        relleno = ax.contourf(
+        ax.contourf(
             X,
             Y,
             Z,
@@ -304,6 +303,62 @@ def generar_puntos_ortogonales(arbol, puntos_frontera, distancias=[0.1, 0.2, 0.3
             vector_ortogonales.append((p_mas, p_menos))
 
     return vector_ortogonales
+
+
+def altura_arbol(nodo):
+    if isinstance(nodo, (Variable, Constante)):
+        return 1
+    altura_izq = altura_arbol(nodo.izq) if hasattr(nodo, "izq") else 0
+    altura_der = altura_arbol(nodo.der) if hasattr(nodo, "der") else 0
+    return 1 + max(altura_izq, altura_der)
+
+
+def simplificar(nodo):
+    if isinstance(nodo, (Variable, Constante)):
+        return nodo
+
+    if hasattr(nodo, "izq"):
+        nodo.izq = simplificar(nodo.izq)
+    if hasattr(nodo, "der"):
+        nodo.der = simplificar(nodo.der)
+
+    if hasattr(nodo, "izq") and hasattr(nodo, "der"):
+        if isinstance(nodo.izq, Constante) and isinstance(nodo.der, Constante):
+            try:
+                val = nodo.evaluar(0, 0)
+                return Constante(val)
+            except Exception:
+                pass
+
+    if isinstance(nodo, Suma):
+        if isinstance(nodo.der, Constante) and abs(nodo.der.valor) < 1e-6:
+            return nodo.izq
+        if isinstance(nodo.izq, Constante) and abs(nodo.izq.valor) < 1e-6:
+            return nodo.der
+
+    elif isinstance(nodo, Resta):
+        if isinstance(nodo.der, Constante) and abs(nodo.der.valor) < 1e-6:
+            return nodo.izq
+
+    elif isinstance(nodo, Multiplicacion):
+        if isinstance(nodo.der, Constante):
+            if abs(nodo.der.valor - 1.0) < 1e-6:
+                return nodo.izq
+            if abs(nodo.der.valor) < 1e-6:
+                return Constante(0.0)
+        if isinstance(nodo.izq, Constante):
+            if abs(nodo.izq.valor - 1.0) < 1e-6:
+                return nodo.der
+            if abs(nodo.izq.valor) < 1e-6:
+                return Constante(0.0)
+
+    elif isinstance(nodo, DivisionProtegida):
+        if isinstance(nodo.der, Constante) and abs(nodo.der.valor - 1.0) < 1e-6:
+            return nodo.izq
+        if isinstance(nodo.izq, Constante) and abs(nodo.izq.valor) < 1e-6:
+            return Constante(0.0)
+
+    return nodo
 
 
 # ==========================================
