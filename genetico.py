@@ -2,6 +2,9 @@ import multiprocessing
 import random
 import copy
 import joblib
+import time
+import psutil
+import os
 import numpy as np
 import warnings
 import matplotlib.pyplot as plt
@@ -322,48 +325,44 @@ def genetico(
     path_modelo,
     tam_poblacion=20,
     tam_elite=5,
-    generaciones=50,
+    generaciones=100,
     prob_cruce=0.8,
     prob_mutacion=0.2,
     profundidad_inicial=4,
 ):
-    # Generar dataset de entrenamiento con puntos aleatorios usando el modelo caja negra
+    # --- MÉTRICAS INICIALES ---
+    print(f"\n>>> Iniciando ejecución y test de rendimiento para: {path_modelo}")
+    if not os.path.exists("output"):
+        os.makedirs("output")
+        print("Carpeta 'output' creada.")
+
+    proceso = psutil.Process(os.getpid())
+    mem_inicial = proceso.memory_info().rss / (1024 * 1024)  # MB
+    start_time = time.time()
+
+    # Generar dataset de entrenamiento
     print(f"Generando dataset exploratorio para {path_modelo}...")
     bb = BlackBoxModel(path_modelo)
-
-    # Generar puntos de manera más distribuida para encontrar ambas clases
     p = puntos(bb)[0]
 
     print("\n=== INICIANDO ALGORITMO GENÉTICO ===")
-    # 1. Inicializar
     poblacion = inicializar_poblacion(
         tam_poblacion=tam_poblacion, profundidad_inicial=profundidad_inicial
     )
 
-    # 2. Bucle Generacional
     for gen in range(generaciones):
-        # Evaluar
         poblacion = evaluar_poblacion(poblacion, p, bb)
-
         mejor_fitness = poblacion[0][1]
-        print(
-            f"Generación {gen + 1}/{generaciones} | Mejor Fitness (Accuracy): {mejor_fitness:.4f}"
-        )
+        print(f"Generación {gen + 1}/{generaciones} | Mejor Fitness: {mejor_fitness:.4f}")
 
-        # Si encontramos el modelo perfecto
         if mejor_fitness >= 0.99:
             print("¡Solución óptima alcanzada!")
             break
 
         nueva_poblacion = []
-
-        # 3. Elitismo (Guardar los mejores)
         elite = poblacion[:tam_elite]
-        nueva_poblacion.extend(
-            [(ind, 0.0) for ind, _ in elite]
-        )  # Reseteamos fitness para la sig generacion
+        nueva_poblacion.extend([(ind, 0.0) for ind, _ in elite])
 
-        # 4. Cruzamiento y Mutación para rellenar la población
         while len(nueva_poblacion) < tam_poblacion:
             padre1 = seleccion_torneo(poblacion)
             padre2 = seleccion_torneo(poblacion)
@@ -387,34 +386,74 @@ def genetico(
 
         poblacion = nueva_poblacion
 
-    # Evaluación final
+    # --- EVALUACIÓN FINAL Y MÉTRICAS DE CIERRE ---
     poblacion = evaluar_poblacion(poblacion, p, bb)
-    mejor_individuo = poblacion[0]
+    mejor_arbol = poblacion[0][0]
+    mejor_fitness = poblacion[0][1]
+    
+    end_time = time.time()
+    mem_final = proceso.memory_info().rss / (1024 * 1024)
+    tiempo_total = end_time - start_time
+    uso_memoria = mem_final - mem_inicial
+    cpu_uso = psutil.cpu_percent(interval=1) # Corregido cpu_percent
+
     print("\n=== FIN DEL ALGORITMO ===")
-    print(f"Mejor Fitness Final: {mejor_individuo[1]:.4f}")
-    print(f"Ecuación Encontrada para la Frontera:\n{mejor_individuo[0]}")
-    return mejor_individuo[0], p
+    print(f"--- RESULTADOS PARA {path_modelo} ---")
+    print(f"Mejor Fitness Final: {mejor_fitness:.4f}")
+    print(f"Tiempo Total: {tiempo_total:.2f} s | Memoria: {uso_memoria:.2f} MB | CPU: {cpu_uso}%")
+    print(f"Ecuación:\n{mejor_arbol}")
+
+    # --- GENERACIÓN Y GUARDADO DE GRÁFICAS ---
+    nombre_base = os.path.basename(path_modelo).replace(".pkl", "")
+    
+    # 1. Gráfica de la Frontera (de arbol.py)
+    mejor_arbol.graf()
+    plt.title(f"Frontera Generada - {nombre_base}")
+    plt.savefig(f"output/frontera_{nombre_base}.png")
+    plt.close() # Importante cerrar para que no se solapen
+
+    # 2. Gráfica de Fitness/Puntos
+    graficar_fitness_resultado(mejor_arbol, p, distancias=[0.2, 0.4, 0.6], paso=0.15)
+    plt.title(f"Evaluación Fitness - {nombre_base}")
+    plt.savefig(f"output/fitness_{nombre_base}.png")
+    plt.close()
+
+    print(f"Gráficas guardadas en la carpeta 'output/' como frontera_{nombre_base}.png y fitness_{nombre_base}.png")
+    
+    return mejor_arbol, p
 
 
 if __name__ == "__main__":
-    # Ejecutamos el genético para el modelo A
-    print("\n----------------------------------------------------")
-    print("EJECUTANDO GENÉTICO PARA: blackbox_modelA.pkl")
-    print("----------------------------------------------------")
-    # Los parámetros: 20 individuos, 5 élite según las especificaciones
-    ag_A, point_A = genetico(
-        "blackbox_modelA.pkl", tam_poblacion=20, tam_elite=2, generaciones=20
-    )
-    ag_A.graf()
-    graficar_fitness_resultado(ag_A, point_A, distancias=[0.2, 0.4, 0.6], paso=0.15)
-    plt.show()
-    # Ejecutamos el genético para el modelo B
-    print("\n----------------------------------------------------")
-    print("EJECUTANDO GENÉTICO PARA: blackbox_modelB.pkl")
-    print("----------------------------------------------------")
-    ag_B, point_B = genetico(
-        "blackbox_modelB.pkl", tam_poblacion=20, tam_elite=2, generaciones=20
-    )
-    ag_B.graf()
-    graficar_fitness_resultado(ag_B, point_B, distancias=[0.2, 0.4, 0.6], paso=0.15)
-    plt.show()
+    # 1. Definición de los modelos a procesar
+    # Asegúrate de que estos archivos estén en la misma carpeta que el script
+    modelos_a_evaluar = ["blackbox_modelA.pkl", "blackbox_modelB.pkl"]
+    
+    print("====================================================")
+    print("INICIANDO EVALUACIÓN DE PRÁCTICA 3 - METAHEURÍSTICAS")
+    print("====================================================")
+
+    for modelo in modelos_a_evaluar:
+        try:
+            if not os.path.exists(modelo):
+                print(f"\n[!] Error: No se encuentra el archivo {modelo}. Saltando...")
+                continue
+            
+            # 2. Llamada única a la función principal
+            # Al llamar a genetico(), se ejecutan las métricas, se entrena,
+            # y se guardan las gráficas automáticamente en /output. [cite: 103, 107]
+            arbol_final, punto_inicio = genetico(
+                path_modelo=modelo, 
+                tam_poblacion=20,     # Parámetro según vuestra configuración
+                tam_elite=2,          # Elitismo configurado [cite: 168]
+                generaciones=100       # Número de iteraciones [cite: 184]
+            )
+            
+            print(f"\n[OK] Finalizado éxito: {modelo}")
+            print("-" * 50)
+
+        except Exception as e:
+            print(f"\n[!] Error crítico procesando {modelo}: {e}")
+
+    print("\n====================================================")
+    print("PROCESO COMPLETADO. Revisa la carpeta 'output' para las gráficas.")
+    print("====================================================")
