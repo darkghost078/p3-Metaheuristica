@@ -16,16 +16,13 @@ from arbol import (
     generar_vecindad_frontera,
     altura_arbol,
     simplificar,
+    encontrar_intersecciones_rayos,
 )
 
 warnings.filterwarnings("ignore")
 
 
-# ==========================================
-# UTILIDADES PARA ÁRBOLES
-# ==========================================
 def obtener_nodos(nodo):
-    """Devuelve una lista con todos los nodos del árbol para poder elegir uno al azar."""
     nodos = [nodo]
     if hasattr(nodo, "hijo"):
         nodos.extend(obtener_nodos(nodo.hijo))
@@ -37,7 +34,6 @@ def obtener_nodos(nodo):
 
 
 def reemplazar_nodo(arbol, nodo_viejo, nodo_nuevo):
-    """Reemplaza recursivamente la primera instancia de nodo_viejo por nodo_nuevo."""
     if arbol is nodo_viejo:
         return copy.deepcopy(nodo_nuevo)
 
@@ -63,7 +59,6 @@ def reemplazar_nodo(arbol, nodo_viejo, nodo_nuevo):
 
 
 def cruzar_arboles(padre1, padre2):
-    """Cruza dos árboles intercambiando subárboles elegidos al azar."""
     hijo1 = copy.deepcopy(padre1)
     hijo2 = copy.deepcopy(padre2)
 
@@ -73,7 +68,6 @@ def cruzar_arboles(padre1, padre2):
     if nodos1 and nodos2:
         n1 = random.choice(nodos1)
         n2 = random.choice(nodos2)
-
         hijo1 = reemplazar_nodo(hijo1, n1, n2)
         hijo2 = reemplazar_nodo(hijo2, n2, n1)
 
@@ -81,7 +75,6 @@ def cruzar_arboles(padre1, padre2):
 
 
 def mutar_arbol(arbol, profundidad_max=2):
-    """Muta un árbol reemplazando un nodo al azar por un nuevo subárbol generado aleatoriamente."""
     arbol_mutado = copy.deepcopy(arbol)
     nodos = obtener_nodos(arbol_mutado)
 
@@ -93,81 +86,99 @@ def mutar_arbol(arbol, profundidad_max=2):
     return arbol_mutado
 
 
-# ==========================================
-# EVALUACIÓN (FITNESS) PARA MULTIPROCESAMIENTO
-# ==========================================
-
-
 def score_wrapper(params):
     return score(*params)
 
 
 def score(arbol, p, bb):
-    p_opt = encontrar_punto_mas_cercano(arbol, p)
-    if p_opt is None:
+    centros_brutos = encontrar_intersecciones_rayos(
+        arbol, p, num_rayos=8, radio_max=10.0, paso=0.3
+    )
+
+    if not centros_brutos:
         return 0.0
 
-    num_puntos_esperados = 100
+    # Purgar centros que convergen en el mismo espacio físico
+    centros = []
+    for c in centros_brutos:
+        if not any(np.hypot(c[0] - cv[0], c[1] - cv[1]) < 0.15 for cv in centros):
+            centros.append(c)
+
+    # Si la curva es un micropunto colapsado, el árbol no es viable
+    if len(centros) < 3:
+        return 0.0
+
+    # Penalización por asfixia si no hay margen de separación real
+    distancias_origen = [np.hypot(c[0] - p[0], c[1] - p[1]) for c in centros]
+    distancia_media = sum(distancias_origen) / len(distancias_origen)
+
+    penalizacion_margen = 0.0
+    if distancia_media < 0.3:
+        penalizacion_margen = 0.2
+
+    num_puntos_por_centro = 10
     distancias_prueba = [0.2, 0.4, 0.6]
-
-    points = generar_vecindad_frontera(
-        arbol, p_opt, num_puntos=num_puntos_esperados, paso=0.15
-    )
-
-    # Recibimos el historial de fallos del gradiente
-    fitnessPoints, fallos_gradiente = generar_puntos_ortogonales(
-        arbol, points, distancias=distancias_prueba
-    )
 
     wellClassified = 0
     fallos_matematicos = 0
-    total_evaluaciones_esperadas = num_puntos_esperados * len(distancias_prueba)
+    fallos_gradiente = 0
+    total_evaluaciones = 0
 
-    if total_evaluaciones_esperadas == 0:
-        return 0.0
+    for centro in centros:
+        points = generar_vecindad_frontera(
+            arbol, centro, num_puntos=num_puntos_por_centro, paso=0.15
+        )
 
-    for point in fitnessPoints:
-        predictMod1 = bb.predict([point[0]])[0]
-        predictMod2 = bb.predict([point[1]])[0]
+        fitnessPoints, fallos_grad = generar_puntos_ortogonales(
+            arbol, points, distancias=distancias_prueba
+        )
 
-        try:
-            predict1 = arbol.evaluar(point[0][0], point[0][1])
-            predict2 = arbol.evaluar(point[1][0], point[1][1])
+        fallos_gradiente += fallos_grad
+        total_evaluaciones += len(points) * len(distancias_prueba)
 
-            # Desenmascaramos la División Protegida y las asíntotas
-            if abs(predict1) > 1000 or abs(predict2) > 1000:
+        for point in fitnessPoints:
+            predictMod1 = bb.predict([point[0]])[0]
+            predictMod2 = bb.predict([point[1]])[0]
+
+            try:
+                predict1 = arbol.evaluar(point[0][0], point[0][1])
+                predict2 = arbol.evaluar(point[1][0], point[1][1])
+
+                if abs(predict1) > 1000 or abs(predict2) > 1000:
+                    fallos_matematicos += 1
+                    continue
+            except Exception:
                 fallos_matematicos += 1
                 continue
 
-        except Exception:
-            fallos_matematicos += 1
-            continue
+            predict1_bin = 1 if predict1 > 0 else 0
+            predict2_bin = 1 if predict2 > 0 else 0
 
-        predict1 = 1 if predict1 > 0 else 0
-        predict2 = 1 if predict2 > 0 else 0
+            if (
+                predict1_bin == predictMod1
+                and predict2_bin == predictMod2
+                and predict1_bin != predict2_bin
+            ):
+                wellClassified += 1
 
-        if predict1 == predictMod1 and predict2 == predictMod2 and predict1 != predict2:
-            wellClassified += 1
-
-    total_fallos = fallos_matematicos + fallos_gradiente
-    ratio_fallos = total_fallos / total_evaluaciones_esperadas
-
-    # Selección natural implacable: si el 10% del árbol es basura, muere.
-    if ratio_fallos > 0.10:
+    if total_evaluaciones == 0:
         return 0.0
 
-    accuracy = wellClassified / total_evaluaciones_esperadas
+    ratio_fallos = (fallos_matematicos + fallos_gradiente) / total_evaluaciones
+
+    if ratio_fallos > 0.20:
+        return 0.0
+
+    accuracy = wellClassified / total_evaluaciones
     height = altura_arbol(arbol)
     coef_penal = 0.005
 
-    fitness_final = accuracy - (coef_penal * height)
+    # Aplicamos la reducción si no cumple el estándar geométrico
+    fitness_final = accuracy - (coef_penal * height) - penalizacion_margen
 
     return max(0.0, fitness_final)
 
 
-# ==========================================
-# CLASE MODELO CAJA NEGRA
-# ==========================================
 class BlackBoxModel:
     def __init__(self, path="blackbox_model.pkl"):
         self.model = joblib.load(path)
@@ -177,40 +188,34 @@ class BlackBoxModel:
 
 
 def inicializar_poblacion(tam_poblacion, profundidad_inicial):
-    """Inicializa la población de árboles con individuos aleatorios y calcula su fitness."""
     poblacion = []
     for _ in range(tam_poblacion):
         arbol = generar_arbol_aleatorio(profundidad_inicial)
-        poblacion.append((arbol, 0.0))  # El fitness inicial es 0.0
+        poblacion.append((arbol, 0.0))
     return poblacion
 
 
 def evaluar_poblacion(poblacion, p, bb):
-    """Evalúa toda la población usando multiprocesamiento."""
     with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
         params = [(individuo, p, bb) for individuo, _ in poblacion]
         resultados_fitness = pool.map(score_wrapper, params)
 
-    # Actualizamos la población con el fitness calculado (vector por pares: individuo, fitness)
     poblacion_evaluada = [
         (poblacion[i][0], resultados_fitness[i]) for i in range(len(poblacion))
     ]
 
-    # Ordenamos de mayor a menor fitness
     poblacion_evaluada.sort(key=lambda x: x[1], reverse=True)
     return poblacion_evaluada
 
 
 def seleccion_torneo(poblacion, k=3):
-    """Selección por torneo para elegir padres."""
     seleccionados = random.sample(poblacion, k)
     seleccionados.sort(key=lambda x: x[1], reverse=True)
-    return seleccionados[0][0]  # Retorna el mejor individuo (árbol)
+    return seleccionados[0][0]
 
 
 def puntos(bb):
     print("\n=== Buscando puntos de ambas clases ===")
-
     class0 = []
     class1 = []
     paso = 0.25
@@ -218,11 +223,9 @@ def puntos(bb):
 
     while len(class0) == 0 or len(class1) == 0:
         values = np.arange(-limite, limite + paso, paso)
-
         for x in values:
             for y in values:
                 punto = np.array([[round(x, 2), round(y, 2)]])
-
                 prediccion = bb.predict(punto)[0]
 
                 if prediccion == 0 and len(class0) < 50:
@@ -250,59 +253,68 @@ def puntos(bb):
 def graficar_fitness_resultado(
     arbol, punto_origen, distancias=[0.1, 0.2, 0.3], paso=0.05
 ):
-    print(f"\n--- Generando gráfica de fitness para el punto origen {punto_origen} ---")
-    punto_central = encontrar_punto_mas_cercano(arbol, punto_origen)
+    print(f"\n--- Generando gráfica de fitness para el origen {punto_origen} ---")
+    centros = encontrar_intersecciones_rayos(
+        arbol, punto_origen, num_rayos=8, radio_max=10.0, paso=0.5
+    )
 
-    if not punto_central:
+    if not centros:
         print(
-            "El optimizador falló o devolvió nulo. No hay frontera útil para graficar."
+            "Los rayos no intersectaron la frontera en el radio máximo. No se genera gráfica."
         )
         return
 
-    puntos_frontera = generar_vecindad_frontera(
-        arbol, punto_central, num_puntos=100, paso=paso
-    )
-    vector_ortogonales, _ = generar_puntos_ortogonales(
-        arbol, puntos_frontera, distancias=distancias
-    )
-
     plt.figure(figsize=(10, 10))
+    colores = ["r", "g", "orange", "purple", "cyan", "brown"]
 
-    X_front = [p[0] for p in puntos_frontera]
-    Y_front = [p[1] for p in puntos_frontera]
-    plt.plot(X_front, Y_front, "b-", label="Frontera f(x,y)=0", linewidth=2)
-
-    colores = ["r", "g", "orange"]
-
-    # Extraemos los puntos leyendo la lista plana con saltos proporcionales
-    for idx_distancia, d in enumerate(distancias):
-        x_mas, y_mas = [], []
-        x_menos, y_menos = [], []
-
-        for i in range(idx_distancia, len(vector_ortogonales), len(distancias)):
-            p_m, p_me = vector_ortogonales[i]
-            x_mas.append(p_m[0])
-            y_mas.append(p_m[1])
-            x_menos.append(p_me[0])
-            y_menos.append(p_me[1])
-
-        plt.scatter(
-            x_mas,
-            y_mas,
-            color=colores[idx_distancia],
-            s=10,
-            alpha=0.6,
-            label=f"Distancia +{d}",
+    for idx_centro, centro in enumerate(centros):
+        puntos_frontera = generar_vecindad_frontera(
+            arbol, centro, num_puntos=10, paso=paso
         )
-        plt.scatter(
-            x_menos,
-            y_menos,
-            color=colores[idx_distancia],
-            s=10,
-            alpha=0.6,
-            marker="x",
-            label=f"Distancia -{d}",
+        vector_ortogonales, _ = generar_puntos_ortogonales(
+            arbol, puntos_frontera, distancias=distancias
         )
+
+        X_front = [p[0] for p in puntos_frontera]
+        Y_front = [p[1] for p in puntos_frontera]
+        plt.plot(X_front, Y_front, "b-", linewidth=2, alpha=0.5)
+
+        plt.plot(
+            [punto_origen[0], centro[0]],
+            [punto_origen[1], centro[1]],
+            "k--",
+            alpha=0.2,
+            linewidth=0.8,
+        )
+        plt.plot(centro[0], centro[1], "mD", markersize=5)
+
+        for idx_distancia, d in enumerate(distancias):
+            x_mas, y_mas = [], []
+            x_menos, y_menos = [], []
+
+            for i in range(idx_distancia, len(vector_ortogonales), len(distancias)):
+                p_m, p_me = vector_ortogonales[i]
+                x_mas.append(p_m[0])
+                y_mas.append(p_m[1])
+                x_menos.append(p_me[0])
+                y_menos.append(p_me[1])
+
+            lbl_mas = f"Distancia +{d}" if idx_centro == 0 else ""
+            lbl_menos = f"Distancia -{d}" if idx_centro == 0 else ""
+
+            color_actual = colores[idx_distancia % len(colores)]
+            plt.scatter(
+                x_mas, y_mas, color=color_actual, s=10, alpha=0.6, label=lbl_mas
+            )
+            plt.scatter(
+                x_menos,
+                y_menos,
+                color=color_actual,
+                s=10,
+                alpha=0.6,
+                marker="x",
+                label=lbl_menos,
+            )
 
     plt.plot(
         punto_origen[0], punto_origen[1], "k*", markersize=12, label="Punto Origen"
@@ -312,15 +324,12 @@ def graficar_fitness_resultado(
     plt.axvline(0, color="black", linewidth=0.5)
     plt.grid(color="gray", linestyle="--", linewidth=0.2)
     plt.legend()
-    plt.title("Puntos de Evaluación de Fitness del Mejor Individuo")
+    plt.title("Evaluación Multidireccional Optimizada")
     plt.xlabel("Eje X")
     plt.ylabel("Eje Y")
     plt.axis("equal")
 
 
-# ==========================================
-# ALGORITMO GENÉTICO
-# ==========================================
 def genetico(
     path_modelo,
     tam_poblacion=20,
@@ -330,17 +339,15 @@ def genetico(
     prob_mutacion=0.2,
     profundidad_inicial=4,
 ):
-    # --- MÉTRICAS INICIALES ---
     print(f"\n>>> Iniciando ejecución y test de rendimiento para: {path_modelo}")
     if not os.path.exists("output"):
         os.makedirs("output")
         print("Carpeta 'output' creada.")
 
     proceso = psutil.Process(os.getpid())
-    mem_inicial = proceso.memory_info().rss / (1024 * 1024)  # MB
+    mem_inicial = proceso.memory_info().rss / (1024 * 1024)
     start_time = time.time()
 
-    # Generar dataset de entrenamiento
     print(f"Generando dataset exploratorio para {path_modelo}...")
     bb = BlackBoxModel(path_modelo)
     p = puntos(bb)[0]
@@ -353,7 +360,9 @@ def genetico(
     for gen in range(generaciones):
         poblacion = evaluar_poblacion(poblacion, p, bb)
         mejor_fitness = poblacion[0][1]
-        print(f"Generación {gen + 1}/{generaciones} | Mejor Fitness: {mejor_fitness:.4f}")
+        print(
+            f"Generación {gen + 1}/{generaciones} | Mejor Fitness: {mejor_fitness:.4f}"
+        )
 
         if mejor_fitness >= 0.99:
             print("¡Solución óptima alcanzada!")
@@ -386,48 +395,44 @@ def genetico(
 
         poblacion = nueva_poblacion
 
-    # --- EVALUACIÓN FINAL Y MÉTRICAS DE CIERRE ---
     poblacion = evaluar_poblacion(poblacion, p, bb)
     mejor_arbol = poblacion[0][0]
     mejor_fitness = poblacion[0][1]
-    
+
     end_time = time.time()
     mem_final = proceso.memory_info().rss / (1024 * 1024)
     tiempo_total = end_time - start_time
     uso_memoria = mem_final - mem_inicial
-    cpu_uso = psutil.cpu_percent(interval=1) # Corregido cpu_percent
+    cpu_uso = psutil.cpu_percent(interval=1)
 
     print("\n=== FIN DEL ALGORITMO ===")
     print(f"--- RESULTADOS PARA {path_modelo} ---")
     print(f"Mejor Fitness Final: {mejor_fitness:.4f}")
-    print(f"Tiempo Total: {tiempo_total:.2f} s | Memoria: {uso_memoria:.2f} MB | CPU: {cpu_uso}%")
+    print(
+        f"Tiempo Total: {tiempo_total:.2f} s | Memoria: {uso_memoria:.2f} MB | CPU: {cpu_uso}%"
+    )
     print(f"Ecuación:\n{mejor_arbol}")
 
-    # --- GENERACIÓN Y GUARDADO DE GRÁFICAS ---
     nombre_base = os.path.basename(path_modelo).replace(".pkl", "")
-    
-    # 1. Gráfica de la Frontera (de arbol.py)
     mejor_arbol.graf()
     plt.title(f"Frontera Generada - {nombre_base}")
     plt.savefig(f"output/frontera_{nombre_base}.png")
-    plt.close() # Importante cerrar para que no se solapen
+    plt.close()
 
-    # 2. Gráfica de Fitness/Puntos
     graficar_fitness_resultado(mejor_arbol, p, distancias=[0.2, 0.4, 0.6], paso=0.15)
     plt.title(f"Evaluación Fitness - {nombre_base}")
     plt.savefig(f"output/fitness_{nombre_base}.png")
     plt.close()
 
-    print(f"Gráficas guardadas en la carpeta 'output/' como frontera_{nombre_base}.png y fitness_{nombre_base}.png")
-    
+    print(
+        f"Gráficas guardadas en la carpeta 'output/' como frontera_{nombre_base}.png y fitness_{nombre_base}.png"
+    )
+
     return mejor_arbol, p
 
 
 if __name__ == "__main__":
-    # 1. Definición de los modelos a procesar
-    # Asegúrate de que estos archivos estén en la misma carpeta que el script
     modelos_a_evaluar = ["blackbox_modelA.pkl", "blackbox_modelB.pkl"]
-    
     print("====================================================")
     print("INICIANDO EVALUACIÓN DE PRÁCTICA 3 - METAHEURÍSTICAS")
     print("====================================================")
@@ -437,17 +442,11 @@ if __name__ == "__main__":
             if not os.path.exists(modelo):
                 print(f"\n[!] Error: No se encuentra el archivo {modelo}. Saltando...")
                 continue
-            
-            # 2. Llamada única a la función principal
-            # Al llamar a genetico(), se ejecutan las métricas, se entrena,
-            # y se guardan las gráficas automáticamente en /output. [cite: 103, 107]
+
             arbol_final, punto_inicio = genetico(
-                path_modelo=modelo, 
-                tam_poblacion=20,     # Parámetro según vuestra configuración
-                tam_elite=2,          # Elitismo configurado [cite: 168]
-                generaciones=100       # Número de iteraciones [cite: 184]
+                path_modelo=modelo, tam_poblacion=20, tam_elite=2, generaciones=1000
             )
-            
+
             print(f"\n[OK] Finalizado éxito: {modelo}")
             print("-" * 50)
 
@@ -457,3 +456,4 @@ if __name__ == "__main__":
     print("\n====================================================")
     print("PROCESO COMPLETADO. Revisa la carpeta 'output' para las gráficas.")
     print("====================================================")
+
