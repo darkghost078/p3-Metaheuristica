@@ -277,36 +277,35 @@ def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
 
 
 def generar_puntos_ortogonales(arbol, puntos_frontera, distancias=[0.1, 0.2, 0.3]):
-    """
-    Dado un conjunto de puntos en la frontera f(x,y)=0, genera pares de puntos
-    ortogonales (uno a cada lado) a distancias incrementales.
-    Retorna una lista de la misma longitud que puntos_frontera.
-    """
     vector_ortogonales = []
+    nx_prev = None
+    ny_prev = None
+    fallos_gradiente = 0
 
     for x, y in puntos_frontera:
-        # 1. Calculamos el gradiente en el punto de la frontera
         gx, gy = calcular_gradiente(arbol, x, y)
         norma = np.hypot(gx, gy)
 
-        # 2. Vector normal unitario (apunta perpendicular a la frontera)
-        if norma < 1e-8:
-            # Si la derivada es 0 (ej. en una zona plana o constante), usamos un vector por defecto
+        if norma < 1e-8 or np.isnan(norma) or np.isinf(norma):
             nx, ny = 0.0, 1.0
+            fallos_gradiente += 1
         else:
             nx, ny = gx / norma, gy / norma
 
-        # 3. Generamos los pares de puntos para cada distancia
-        for d in distancias:
-            # Punto a un lado (sumando el vector normal)
-            p_mas = (x + d * nx, y + d * ny)
-            # Punto al otro lado (restando el vector normal)
-            p_menos = (x - d * nx, y - d * ny)
+        if nx_prev is not None and ny_prev is not None:
+            producto_escalar = nx * nx_prev + ny * ny_prev
+            if producto_escalar < 0:
+                nx, ny = -nx, -ny
 
-            # Guardamos la tupla con ambos puntos
+        nx_prev = nx
+        ny_prev = ny
+
+        for d in distancias:
+            p_mas = (x + d * nx, y + d * ny)
+            p_menos = (x - d * nx, y - d * ny)
             vector_ortogonales.append((p_mas, p_menos))
 
-    return vector_ortogonales
+    return vector_ortogonales, fallos_gradiente
 
 
 def altura_arbol(nodo):
@@ -391,4 +390,3 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"Ocurrió un error al evaluar: {e}")
-

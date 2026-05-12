@@ -101,7 +101,6 @@ def score_wrapper(params):
 
 def score(arbol, p, bb):
     p_opt = encontrar_punto_mas_cercano(arbol, p)
-
     if p_opt is None:
         return 0.0
 
@@ -111,12 +110,14 @@ def score(arbol, p, bb):
     points = generar_vecindad_frontera(
         arbol, p_opt, num_puntos=num_puntos_esperados, paso=0.15
     )
-    fitnessPoints = generar_puntos_ortogonales(
+
+    # Recibimos el historial de fallos del gradiente
+    fitnessPoints, fallos_gradiente = generar_puntos_ortogonales(
         arbol, points, distancias=distancias_prueba
     )
 
     wellClassified = 0
-
+    fallos_matematicos = 0
     total_evaluaciones_esperadas = num_puntos_esperados * len(distancias_prueba)
 
     if total_evaluaciones_esperadas == 0:
@@ -129,7 +130,14 @@ def score(arbol, p, bb):
         try:
             predict1 = arbol.evaluar(point[0][0], point[0][1])
             predict2 = arbol.evaluar(point[1][0], point[1][1])
+
+            # Desenmascaramos la División Protegida y las asíntotas
+            if abs(predict1) > 1000 or abs(predict2) > 1000:
+                fallos_matematicos += 1
+                continue
+
         except Exception:
+            fallos_matematicos += 1
             continue
 
         predict1 = 1 if predict1 > 0 else 0
@@ -138,12 +146,19 @@ def score(arbol, p, bb):
         if predict1 == predictMod1 and predict2 == predictMod2 and predict1 != predict2:
             wellClassified += 1
 
-    accuracy = wellClassified / total_evaluaciones_esperadas
+    total_fallos = fallos_matematicos + fallos_gradiente
+    ratio_fallos = total_fallos / total_evaluaciones_esperadas
 
+    # Selección natural implacable: si el 10% del árbol es basura, muere.
+    if ratio_fallos > 0.10:
+        return 0.0
+
+    accuracy = wellClassified / total_evaluaciones_esperadas
     height = altura_arbol(arbol)
     coef_penal = 0.005
 
     fitness_final = accuracy - (coef_penal * height)
+
     return max(0.0, fitness_final)
 
 
@@ -244,7 +259,7 @@ def graficar_fitness_resultado(
     puntos_frontera = generar_vecindad_frontera(
         arbol, punto_central, num_puntos=100, paso=paso
     )
-    vector_ortogonales = generar_puntos_ortogonales(
+    vector_ortogonales, _ = generar_puntos_ortogonales(
         arbol, puntos_frontera, distancias=distancias
     )
 
