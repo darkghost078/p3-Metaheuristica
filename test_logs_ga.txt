@@ -1,0 +1,15 @@
+
+>>> Iniciando ejecución y test de rendimiento para: blackbox_model_TEST.pkl
+=== INICIANDO ALGORITMO GENÉTICO ===
+Generación 1/1500 | Mejor Fitness: 0.0617
+Generación 10/1500 | Mejor Fitness: 0.1728
+Generación 50/1500 | Mejor Fitness: 0.4111
+Generación 100/1500 | Mejor Fitness: 0.7961
+Generación 200/1500 | Mejor Fitness: 0.8267
+Generación 300/1500 | Mejor Fitness: 0.8356
+Generación 500/1500 | Mejor Fitness: 0.8589
+Generación 888/1500 | Mejor Fitness: 0.8589
+=== FIN DEL ALGORITMO ===
+--- RESULTADOS PARA blackbox_model_TEST.pkl ---
+Tiempo Total: 945.62 s | Memoria: 62.94 MB | CPU: 0.1%
+    
