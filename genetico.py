@@ -444,7 +444,7 @@ if __name__ == "__main__":
                 continue
 
             arbol_final, punto_inicio = genetico(
-                path_modelo=modelo, tam_poblacion=20, tam_elite=2, generaciones=1000
+                path_modelo=modelo, tam_poblacion=20, tam_elite=2, generaciones=100
             )
 
             print(f"\n[OK] Finalizado éxito: {modelo}")
