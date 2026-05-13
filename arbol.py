@@ -89,20 +89,6 @@ class Multiplicacion(Nodo):
         return f"({self.izq} * {self.der})"
 
 
-class DivisionProtegida(Nodo):
-    def __init__(self, izq, der):
-        self.izq, self.der = izq, der
-
-    def evaluar(self, x, y):
-        den = self.der.evaluar(x, y)
-        if abs(den) < 1e-6:
-            return 1e9
-        return self.izq.evaluar(x, y) / den
-
-    def __str__(self):
-        return f"({self.izq} / {self.der})"
-
-
 def generar_arbol_aleatorio(profundidad_maxima):
     if profundidad_maxima == 0:
         if random.random() < 0.5:
@@ -122,7 +108,7 @@ def generar_arbol_aleatorio(profundidad_maxima):
     else:
         hijo_izq = generar_arbol_aleatorio(profundidad_maxima - 1)
         hijo_der = generar_arbol_aleatorio(profundidad_maxima - 1)
-        Operador = random.choice([Suma, Resta, Multiplicacion, DivisionProtegida])
+        Operador = random.choice([Suma, Resta, Multiplicacion])
         return Operador(hijo_izq, hijo_der)
 
 
@@ -169,6 +155,11 @@ def calcular_gradiente(arbol, x, y, h=1e-5):
 
 def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
     mitad = num_puntos // 2
+    cont = 0
+
+    if cont > 50:
+        paso = 0.1
+    
 
     def avanzar_sobre_curva(punto_inicial, direccion, pasos):
         puntos = []
@@ -298,53 +289,44 @@ def altura_arbol(nodo):
     altura_der = altura_arbol(nodo.der) if hasattr(nodo, "der") else 0
     return 1 + max(altura_izq, altura_der)
 
-
-def simplificar(nodo):
-    if isinstance(nodo, (Variable, Constante)):
-        return nodo
-
-    if hasattr(nodo, "izq"):
-        nodo.izq = simplificar(nodo.izq)
-    if hasattr(nodo, "der"):
-        nodo.der = simplificar(nodo.der)
-
-    if hasattr(nodo, "izq") and hasattr(nodo, "der"):
-        if isinstance(nodo.izq, Constante) and isinstance(nodo.der, Constante):
-            try:
-                val = nodo.evaluar(0, 0)
-                return Constante(val)
-            except Exception:
-                pass
-
-    if isinstance(nodo, Suma):
-        if isinstance(nodo.der, Constante) and abs(nodo.der.valor) < 1e-6:
-            return nodo.izq
-        if isinstance(nodo.izq, Constante) and abs(nodo.izq.valor) < 1e-6:
-            return nodo.der
-
-    elif isinstance(nodo, Resta):
-        if isinstance(nodo.der, Constante) and abs(nodo.der.valor) < 1e-6:
-            return nodo.izq
-
+def calcular_grados(nodo):
+    """
+    Recorre el árbol y calcula el grado máximo de x y de y.
+    Retorna una tupla (grado_x, grado_y).
+    """
+    if isinstance(nodo, Variable):
+        return (1, 0) if nodo.nombre == "x" else (0, 1)
+    
+    elif isinstance(nodo, Constante):
+        return (0, 0)
+        
+    elif isinstance(nodo, (Suma, Resta)):
+        gx1, gy1 = calcular_grados(nodo.izq)
+        gx2, gy2 = calcular_grados(nodo.der)
+        return (max(gx1, gx2), max(gy1, gy2))
+        
     elif isinstance(nodo, Multiplicacion):
-        if isinstance(nodo.der, Constante):
-            if abs(nodo.der.valor - 1.0) < 1e-6:
-                return nodo.izq
-            if abs(nodo.der.valor) < 1e-6:
-                return Constante(0.0)
-        if isinstance(nodo.izq, Constante):
-            if abs(nodo.izq.valor - 1.0) < 1e-6:
-                return nodo.der
-            if abs(nodo.izq.valor) < 1e-6:
-                return Constante(0.0)
+        gx1, gy1 = calcular_grados(nodo.izq)
+        gx2, gy2 = calcular_grados(nodo.der)
+        return (gx1 + gx2, gy1 + gy2)
+        
+    return (0, 0)
 
-    elif isinstance(nodo, DivisionProtegida):
-        if isinstance(nodo.der, Constante) and abs(nodo.der.valor - 1.0) < 1e-6:
-            return nodo.izq
-        if isinstance(nodo.izq, Constante) and abs(nodo.izq.valor) < 1e-6:
-            return Constante(0.0)
+def es_arbol_valido(nodo, grado_maximo=2):
+    """
+    Comprueba que ni x ni y tengan un grado mayor al permitido.
+    """
+    gx, gy = calcular_grados(nodo)
+    return gx <= grado_maximo and gy <= grado_maximo
 
-    return nodo
+def generar_arbol_aleatorio_valido(profundidad_maxima):
+    """
+    Genera árboles de forma segura hasta encontrar uno con grado <= 2.
+    """
+    while True:
+        arbol = generar_arbol_aleatorio(profundidad_maxima)
+        if es_arbol_valido(arbol):
+            return arbol
 
 
 if __name__ == "__main__":
