@@ -459,7 +459,7 @@ def genetico(
 if __name__ == "__main__":
     # 1. Definición de los modelos a procesar
     # Asegúrate de que estos archivos estén en la misma carpeta que el script
-    modelos_a_evaluar = ["blackbox_modelA.pkl", "blackbox_modelB.pkl"]
+    modelos_a_evaluar = ["blackbox_modelB.pkl"]
     
     print("====================================================")
     print("INICIANDO EVALUACIÓN DE PRÁCTICA 3 - METAHEURÍSTICAS")
