@@ -365,11 +365,11 @@ def genetico(
             generaciones_sin_mejora += 1
 
         if mejor_fitness >= 0.99:
-            print("¡Solución óptima alcanzada (Fitness >= 0.95)!")
+            print("¡Solución óptima alcanzada (Fitness >= 0.99)!")
             break
             
-        if generaciones_sin_mejora >= 500:
-            print(f"¡Parada temprana! Se han alcanzado 500 generaciones sin mejorar el fitness ({mejor_fitness_historico:.4f}).")
+        if generaciones_sin_mejora >= 1000:
+            print(f"¡Parada temprana! Se han alcanzado 1000 generaciones sin mejorar el fitness ({mejor_fitness_historico:.4f}).")
             break
 
         nueva_poblacion = []
@@ -469,7 +469,7 @@ if __name__ == "__main__":
                 path_modelo=modelo, 
                 tam_poblacion=20,     # Parámetro según vuestra configuración
                 tam_elite=2,          # Elitismo configurado
-                generaciones=1500       # Número de iteraciones
+                generaciones=2000       # Número de iteraciones
             )
             
             print(f"\n[OK] Finalizado éxito: {modelo}")
