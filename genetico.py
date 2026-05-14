@@ -326,7 +326,7 @@ def genetico(
     tam_poblacion=20,
     tam_elite=5,
     generaciones=100,
-    prob_cruce=0.8,
+    prob_cruce=0.7,
     prob_mutacion=0.3,
     profundidad_inicial=4,
 ):
@@ -459,8 +459,7 @@ def genetico(
 if __name__ == "__main__":
     # 1. Definición de los modelos a procesar
     # Asegúrate de que estos archivos estén en la misma carpeta que el script
-    # modelos_a_evaluar = ["blackbox_modelA.pkl", "blackbox_modelB.pkl"]
-    modelos_a_evaluar = ["blackbox_modelB.pkl"]
+    modelos_a_evaluar = ["blackbox_modelA.pkl", "blackbox_modelB.pkl"]
     
     print("====================================================")
     print("INICIANDO EVALUACIÓN DE PRÁCTICA 3 - METAHEURÍSTICAS")
@@ -479,7 +478,7 @@ if __name__ == "__main__":
                 path_modelo=modelo, 
                 tam_poblacion=20,     # Parámetro según vuestra configuración
                 tam_elite=2,          # Elitismo configurado
-                generaciones=1000       # Número de iteraciones
+                generaciones=2000       # Número de iteraciones
             )
             
             print(f"\n[OK] Finalizado éxito: {modelo}")
