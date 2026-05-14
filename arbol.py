@@ -2,6 +2,7 @@ import random
 import numpy as np
 from scipy.optimize import minimize, brentq
 import matplotlib.pyplot as plt
+import copy
 
 
 class Nodo:
@@ -159,7 +160,6 @@ def generar_vecindad_frontera(arbol, punto_centro, num_puntos=100, paso=0.05):
 
     if cont > 50:
         paso = 0.1
-    
 
     def avanzar_sobre_curva(punto_inicial, direccion, pasos):
         puntos = []
@@ -289,6 +289,54 @@ def altura_arbol(nodo):
     altura_der = altura_arbol(nodo.der) if hasattr(nodo, "der") else 0
     return 1 + max(altura_izq, altura_der)
 
+
+def contar_nodos(nodo):
+    if isinstance(nodo, (Variable, Constante)):
+        return 1
+    return 1 + contar_nodos(nodo.izq) + contar_nodos(nodo.der)
+
+
+def simplificar_arbol(nodo):
+    if isinstance(nodo, (Variable, Constante)):
+        return copy.deepcopy(nodo)
+
+    izq = simplificar_arbol(nodo.izq)
+    der = simplificar_arbol(nodo.der)
+
+    # Plegado de constantes puro
+    if isinstance(izq, Constante) and isinstance(der, Constante):
+        if isinstance(nodo, Suma):
+            return Constante(izq.valor + der.valor)
+        if isinstance(nodo, Resta):
+            return Constante(izq.valor - der.valor)
+        if isinstance(nodo, Multiplicacion):
+            return Constante(izq.valor * der.valor)
+
+    # Aniquilación por cero
+    if isinstance(nodo, Multiplicacion):
+        if isinstance(izq, Constante) and izq.valor == 0:
+            return Constante(0)
+        if isinstance(der, Constante) and der.valor == 0:
+            return Constante(0)
+
+    # Neutralización de suma y resta
+    if isinstance(nodo, Suma):
+        if isinstance(izq, Constante) and izq.valor == 0:
+            return der
+        if isinstance(der, Constante) and der.valor == 0:
+            return izq
+
+    if isinstance(nodo, Resta):
+        if isinstance(der, Constante) and der.valor == 0:
+            return izq
+        # Si x - 0, el lado izquierdo queda intacto.
+
+    nuevo_nodo = copy.deepcopy(nodo)
+    nuevo_nodo.izq = izq
+    nuevo_nodo.der = der
+    return nuevo_nodo
+
+
 def calcular_grados(nodo):
     """
     Recorre el árbol y calcula el grado máximo de x y de y.
@@ -296,21 +344,22 @@ def calcular_grados(nodo):
     """
     if isinstance(nodo, Variable):
         return (1, 0) if nodo.nombre == "x" else (0, 1)
-    
+
     elif isinstance(nodo, Constante):
         return (0, 0)
-        
+
     elif isinstance(nodo, (Suma, Resta)):
         gx1, gy1 = calcular_grados(nodo.izq)
         gx2, gy2 = calcular_grados(nodo.der)
         return (max(gx1, gx2), max(gy1, gy2))
-        
+
     elif isinstance(nodo, Multiplicacion):
         gx1, gy1 = calcular_grados(nodo.izq)
         gx2, gy2 = calcular_grados(nodo.der)
         return (gx1 + gx2, gy1 + gy2)
-        
+
     return (0, 0)
+
 
 def es_arbol_valido(nodo, grado_maximo=2):
     """
@@ -318,6 +367,7 @@ def es_arbol_valido(nodo, grado_maximo=2):
     """
     gx, gy = calcular_grados(nodo)
     return gx <= grado_maximo and gy <= grado_maximo
+
 
 def generar_arbol_aleatorio_valido(profundidad_maxima):
     """

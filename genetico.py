@@ -16,6 +16,10 @@ from arbol import (
     generar_puntos_ortogonales,
     generar_vecindad_frontera,
     altura_arbol,
+    contar_nodos,
+    simplificar_arbol,
+    Variable,
+    Constante,
 )
 
 warnings.filterwarnings("ignore")
@@ -93,9 +97,34 @@ def mutar_arbol(arbol, profundidad_max=2):
     return arbol_mutado
 
 
+def mutar_poda(arbol):
+    arbol_mutado = copy.deepcopy(arbol)
+
+    def obtener_internos(nodo):
+        internos = []
+        if hasattr(nodo, "izq") and hasattr(nodo, "der"):
+            internos.append(nodo)
+            internos.extend(obtener_internos(nodo.izq))
+            internos.extend(obtener_internos(nodo.der))
+        return internos
+
+    internos = obtener_internos(arbol_mutado)
+    if internos:
+        nodo_a_podar = random.choice(internos)
+        nuevo_terminal = (
+            Variable(random.choice(["x", "y"]))
+            if random.random() < 0.5
+            else Constante()
+        )
+        arbol_mutado = reemplazar_nodo(arbol_mutado, nodo_a_podar, nuevo_terminal)
+
+    return arbol_mutado
+
+
 # ==========================================
 # EVALUACIÓN (FITNESS) PARA MULTIPROCESAMIENTO
 # ==========================================
+
 
 def score_wrapper(params):
     return score(*params)
@@ -156,10 +185,10 @@ def score(arbol, p, bb):
         return 0.0
 
     accuracy = wellClassified / total_evaluaciones_esperadas
-    height = altura_arbol(arbol)
-    coef_penal = 0.005
+    nodos_totales = contar_nodos(arbol)
+    coef_penal = 0.00001
 
-    fitness_final = accuracy - (coef_penal * height)
+    fitness_final = accuracy - (coef_penal * nodos_totales)
 
     return max(0.0, fitness_final)
 
@@ -337,10 +366,10 @@ def genetico(
         print("Carpeta 'output' creada.")
 
     proceso = psutil.Process(os.getpid())
-    psutil.cpu_percent(interval=None) 
-    
+    psutil.cpu_percent(interval=None)
+
     start_time = time.time()
-    
+
     historial_ram = []
     historial_cpu = []
 
@@ -359,16 +388,18 @@ def genetico(
 
     for gen in range(generaciones):
         poblacion = evaluar_poblacion(poblacion, p, bb)
-        
+
         mejor_fitness = poblacion[0][1]
         fitness_medio = sum(ind[1] for ind in poblacion) / len(poblacion)
-        
+
         # NUEVO: Muestreamos la RAM y CPU en esta generación para luego hacer la media
         historial_ram.append(proceso.memory_info().rss / (1024 * 1024))
         historial_cpu.append(psutil.cpu_percent(interval=None))
 
         # NUEVO: Imprimimos ambos valores para que el log los recoja
-        print(f"Generación {gen + 1}/{generaciones} | Mejor Fitness: {mejor_fitness:.4f} | Media Población: {fitness_medio:.4f}")
+        print(
+            f"Generación {gen + 1}/{generaciones} | Mejor Fitness: {mejor_fitness:.4f} | Media Población: {fitness_medio:.4f}"
+        )
 
         if mejor_fitness > mejor_fitness_historico:
             mejor_fitness_historico = mejor_fitness
@@ -376,12 +407,14 @@ def genetico(
         else:
             generaciones_sin_mejora += 1
 
-        if mejor_fitness >= 0.99:
-            print("¡Solución óptima alcanzada (Fitness >= 0.99)!")
+        if mejor_fitness >= 0.975:
+            print("¡Solución óptima alcanzada (Fitness >= 0.975)!")
             break
-            
+
         if generaciones_sin_mejora >= 1000:
-            print(f"¡Parada temprana! Se han alcanzado 1000 generaciones sin mejorar el fitness ({mejor_fitness_historico:.4f}).")
+            print(
+                f"¡Parada temprana! Se han alcanzado 1000 generaciones sin mejorar el fitness ({mejor_fitness_historico:.4f})."
+            )
             break
 
         nueva_poblacion = []
@@ -394,8 +427,7 @@ def genetico(
 
             if random.random() < prob_cruce:
                 hijo1, hijo2 = cruzar_arboles(padre1, padre2)
-                
-                # --- PROTECCIÓN DEL CRUCE ---
+
                 if not es_arbol_valido(hijo1):
                     hijo1 = copy.deepcopy(padre1)
                 if not es_arbol_valido(hijo2):
@@ -404,14 +436,25 @@ def genetico(
                 hijo1, hijo2 = copy.deepcopy(padre1), copy.deepcopy(padre2)
 
             if random.random() < prob_mutacion:
-                hijo_mutado1 = mutar_arbol(hijo1)
+                if random.random() < 0.5:
+                    hijo_mutado1 = mutar_arbol(hijo1)
+                else:
+                    hijo_mutado1 = mutar_poda(hijo1)
+
                 if es_arbol_valido(hijo_mutado1):
                     hijo1 = hijo_mutado1
-                    
+
             if random.random() < prob_mutacion:
-                hijo_mutado2 = mutar_arbol(hijo2)
+                if random.random() < 0.5:
+                    hijo_mutado2 = mutar_arbol(hijo2)
+                else:
+                    hijo_mutado2 = mutar_poda(hijo2)
+
                 if es_arbol_valido(hijo_mutado2):
                     hijo2 = hijo_mutado2
+
+            hijo1 = simplificar_arbol(hijo1)
+            hijo2 = simplificar_arbol(hijo2)
 
             nueva_poblacion.append((hijo1, 0.0))
             if len(nueva_poblacion) < tam_poblacion:
@@ -423,10 +466,10 @@ def genetico(
     poblacion = evaluar_poblacion(poblacion, p, bb)
     mejor_arbol = poblacion[0][0]
     mejor_fitness = poblacion[0][1]
-    
+
     end_time = time.time()
     tiempo_total = end_time - start_time
-    
+
     # NUEVO: Calculamos la media de consumo real a lo largo de toda la ejecución
     ram_media = sum(historial_ram) / len(historial_ram) if historial_ram else 0
     cpu_media = sum(historial_cpu) / len(historial_cpu) if historial_cpu else 0
@@ -435,12 +478,14 @@ def genetico(
     print(f"--- RESULTADOS PARA {path_modelo} ---")
     print(f"Mejor Fitness Final: {mejor_fitness:.4f}")
     # Ahora imprime las medias reales
-    print(f"Tiempo Total: {tiempo_total:.2f} s | Memoria Media: {ram_media:.2f} MB | CPU Media: {cpu_media:.2f}%")
+    print(
+        f"Tiempo Total: {tiempo_total:.2f} s | Memoria Media: {ram_media:.2f} MB | CPU Media: {cpu_media:.2f}%"
+    )
     print(f"Ecuación:\n{mejor_arbol}")
 
     # --- GENERACIÓN Y GUARDADO DE GRÁFICAS ---
     nombre_base = os.path.basename(path_modelo).replace(".pkl", "")
-    
+
     mejor_arbol.graf()
     plt.title(f"Frontera Generada - {nombre_base}")
     plt.savefig(f"output/frontera_{nombre_base}.png")
@@ -451,8 +496,10 @@ def genetico(
     plt.savefig(f"output/fitness_{nombre_base}.png")
     plt.close()
 
-    print(f"Gráficas guardadas en la carpeta 'output/' como frontera_{nombre_base}.png y fitness_{nombre_base}.png")
-    
+    print(
+        f"Gráficas guardadas en la carpeta 'output/' como frontera_{nombre_base}.png y fitness_{nombre_base}.png"
+    )
+
     return mejor_arbol, p
 
 
@@ -460,7 +507,7 @@ if __name__ == "__main__":
     # 1. Definición de los modelos a procesar
     # Asegúrate de que estos archivos estén en la misma carpeta que el script
     modelos_a_evaluar = ["blackbox_modelA.pkl", "blackbox_modelB.pkl"]
-    
+
     print("====================================================")
     print("INICIANDO EVALUACIÓN DE PRÁCTICA 3 - METAHEURÍSTICAS")
     print("====================================================")
@@ -470,17 +517,17 @@ if __name__ == "__main__":
             if not os.path.exists(modelo):
                 print(f"\n[!] Error: No se encuentra el archivo {modelo}. Saltando...")
                 continue
-            
+
             # 2. Llamada única a la función principal
             # Al llamar a genetico(), se ejecutan las métricas, se entrena,
             # y se guardan las gráficas automáticamente en /output.
             arbol_final, punto_inicio = genetico(
-                path_modelo=modelo, 
-                tam_poblacion=20,     # Parámetro según vuestra configuración
-                tam_elite=2,          # Elitismo configurado
-                generaciones=2000       # Número de iteraciones
+                path_modelo=modelo,
+                tam_poblacion=50,  # Parámetro según vuestra configuración
+                tam_elite=2,  # Elitismo configurado
+                generaciones=1000,  # Número de iteraciones
             )
-            
+
             print(f"\n[OK] Finalizado éxito: {modelo}")
             print("-" * 50)
 
@@ -490,3 +537,4 @@ if __name__ == "__main__":
     print("\n====================================================")
     print("PROCESO COMPLETADO. Revisa la carpeta 'output' para las gráficas.")
     print("====================================================")
+
