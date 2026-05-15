@@ -230,11 +230,15 @@ def evaluar_poblacion(poblacion, p, bb):
     return poblacion_evaluada
 
 
-def seleccion_torneo(poblacion, k=3):
-    """Selección por torneo para elegir padres."""
+def seleccion_torneo(poblacion, k=2, prob_mejor=0.85):
+    """Selección por torneo estocástico para elegir padres."""
     seleccionados = random.sample(poblacion, k)
     seleccionados.sort(key=lambda x: x[1], reverse=True)
-    return seleccionados[0][0]  # Retorna el mejor individuo (árbol)
+
+    if random.random() < prob_mejor:
+        return seleccionados[0][0]
+    else:
+        return seleccionados[1][0]
 
 
 def puntos(bb):
@@ -411,7 +415,7 @@ def genetico(
             print("¡Solución óptima alcanzada (Fitness >= 0.975)!")
             break
 
-        if generaciones_sin_mejora >= 1000:
+        if generaciones_sin_mejora >= 100:
             print(
                 f"¡Parada temprana! Se han alcanzado 1000 generaciones sin mejorar el fitness ({mejor_fitness_historico:.4f})."
             )
@@ -422,12 +426,18 @@ def genetico(
         nueva_poblacion.extend([(ind, 0.0) for ind, _ in elite])
 
         while len(nueva_poblacion) < tam_poblacion:
-            padre1 = seleccion_torneo(poblacion)
-            padre2 = seleccion_torneo(poblacion)
+            padre1 = seleccion_torneo(poblacion, k=2)
+            padre2 = seleccion_torneo(poblacion, k=2)
+
+            intentos = 0
+            while padre1 is padre2 and intentos < 10:
+                padre2 = seleccion_torneo(poblacion, k=2)
+                intentos += 1
 
             if random.random() < prob_cruce:
                 hijo1, hijo2 = cruzar_arboles(padre1, padre2)
 
+                # Protección del cruce
                 if not es_arbol_valido(hijo1):
                     hijo1 = copy.deepcopy(padre1)
                 if not es_arbol_valido(hijo2):
@@ -436,25 +446,14 @@ def genetico(
                 hijo1, hijo2 = copy.deepcopy(padre1), copy.deepcopy(padre2)
 
             if random.random() < prob_mutacion:
-                if random.random() < 0.5:
-                    hijo_mutado1 = mutar_arbol(hijo1)
-                else:
-                    hijo_mutado1 = mutar_poda(hijo1)
-
+                hijo_mutado1 = mutar_arbol(hijo1)
                 if es_arbol_valido(hijo_mutado1):
                     hijo1 = hijo_mutado1
 
             if random.random() < prob_mutacion:
-                if random.random() < 0.5:
-                    hijo_mutado2 = mutar_arbol(hijo2)
-                else:
-                    hijo_mutado2 = mutar_poda(hijo2)
-
+                hijo_mutado2 = mutar_arbol(hijo2)
                 if es_arbol_valido(hijo_mutado2):
                     hijo2 = hijo_mutado2
-
-            hijo1 = simplificar_arbol(hijo1)
-            hijo2 = simplificar_arbol(hijo2)
 
             nueva_poblacion.append((hijo1, 0.0))
             if len(nueva_poblacion) < tam_poblacion:
@@ -537,4 +536,3 @@ if __name__ == "__main__":
     print("\n====================================================")
     print("PROCESO COMPLETADO. Revisa la carpeta 'output' para las gráficas.")
     print("====================================================")
-
